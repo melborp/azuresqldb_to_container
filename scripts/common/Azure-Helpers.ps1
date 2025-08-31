@@ -284,11 +284,3 @@ function Get-BlobDownloadUrl {
         Write-CriticalLog "Error generating blob download URL: $($_.Exception.Message)"
     }
 }
-
-Export-ModuleMember -Function @(
-    'Test-AzureConnection',
-    'Set-AzureSubscription',
-    'Export-SqlDatabase',
-    'Test-BlobExists',
-    'Get-BlobDownloadUrl'
-)

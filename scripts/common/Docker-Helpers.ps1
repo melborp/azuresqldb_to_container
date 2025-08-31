@@ -321,12 +321,3 @@ function Test-ContainerHealth {
         return $false
     }
 }
-
-Export-ModuleMember -Function @(
-    'Test-DockerInstallation',
-    'Build-DockerImage',
-    'Test-DockerImage',
-    'Remove-DockerImage',
-    'Push-DockerImageToRegistry',
-    'Test-ContainerHealth'
-)

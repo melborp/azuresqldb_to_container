@@ -70,7 +70,7 @@ function Get-RegistryImageName {
     $cleanImageName = $ImageName -replace "^[^/]+\.azurecr\.io/", ""
     
     # Construct full registry image name
-    $registryImageName = "$RegistryName.azurecr.io/$cleanImageName:$Tag"
+    $registryImageName = "${RegistryName}.azurecr.io/${cleanImageName}:${Tag}"
     return $registryImageName
 }
 

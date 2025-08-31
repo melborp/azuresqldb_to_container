@@ -9,77 +9,55 @@ enum LogLevel {
     Critical = 4
 }
 
-class Logger {
-    [LogLevel]$MinimumLevel
-    [string]$LogPrefix
+# Simple logging implementation without classes for better compatibility
+$Global:LoggerConfig = @{
+    MinimumLevel = [LogLevel]::Info
+    LogPrefix = ""
+}
+
+function Write-Log {
+    param(
+        [LogLevel]$Level,
+        [string]$Message,
+        [hashtable]$Properties = @{}
+    )
     
-    Logger([LogLevel]$minimumLevel = [LogLevel]::Info, [string]$logPrefix = "") {
-        $this.MinimumLevel = $minimumLevel
-        $this.LogPrefix = $logPrefix
-    }
-    
-    [void] WriteLog([LogLevel]$level, [string]$message, [hashtable]$properties = @{}) {
-        if ($level -ge $this.MinimumLevel) {
-            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
-            $levelName = $level.ToString().ToUpper()
-            
-            # Format for CI/CD systems
-            $logEntry = "[$timestamp] [$levelName]"
-            if ($this.LogPrefix) {
-                $logEntry += " [$($this.LogPrefix)]"
-            }
-            $logEntry += " $message"
-            
-            # Add properties if provided
-            if ($properties.Count -gt 0) {
-                $propsJson = $properties | ConvertTo-Json -Compress
-                $logEntry += " | Properties: $propsJson"
-            }
-            
-            # Output to appropriate stream based on level
-            switch ($level) {
-                ([LogLevel]::Debug) { Write-Debug $logEntry }
-                ([LogLevel]::Info) { Write-Host $logEntry -ForegroundColor Green }
-                ([LogLevel]::Warning) { Write-Warning $logEntry }
-                ([LogLevel]::Error) { Write-Error $logEntry }
-                ([LogLevel]::Critical) { Write-Error $logEntry }
-            }
+    if ($Level -ge $Global:LoggerConfig.MinimumLevel) {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        $levelName = $Level.ToString().ToUpper()
+        
+        # Format for CI/CD systems
+        $logEntry = "[$timestamp] [$levelName]"
+        if ($Global:LoggerConfig.LogPrefix) {
+            $logEntry += " [$($Global:LoggerConfig.LogPrefix)]"
         }
-    }
-    
-    [void] Debug([string]$message, [hashtable]$properties = @{}) {
-        $this.WriteLog([LogLevel]::Debug, $message, $properties)
-    }
-    
-    [void] Info([string]$message, [hashtable]$properties = @{}) {
-        $this.WriteLog([LogLevel]::Info, $message, $properties)
-    }
-    
-    [void] Warning([string]$message, [hashtable]$properties = @{}) {
-        $this.WriteLog([LogLevel]::Warning, $message, $properties)
-    }
-    
-    [void] Error([string]$message, [hashtable]$properties = @{}) {
-        $this.WriteLog([LogLevel]::Error, $message, $properties)
-    }
-    
-    [void] Critical([string]$message, [hashtable]$properties = @{}) {
-        $this.WriteLog([LogLevel]::Critical, $message, $properties)
-        throw $message
+        $logEntry += " $Message"
+        
+        # Add properties if provided
+        if ($Properties.Count -gt 0) {
+            $propsJson = $Properties | ConvertTo-Json -Compress
+            $logEntry += " | Properties: $propsJson"
+        }
+        
+        # Output to appropriate stream based on level
+        switch ($Level) {
+            ([LogLevel]::Debug) { Write-Debug $logEntry }
+            ([LogLevel]::Info) { Write-Host $logEntry -ForegroundColor Green }
+            ([LogLevel]::Warning) { Write-Warning $logEntry }
+            ([LogLevel]::Error) { Write-Error $logEntry }
+            ([LogLevel]::Critical) { Write-Error $logEntry }
+        }
     }
 }
 
-# Global logger instance
-$Global:Logger = [Logger]::new()
-
 function Set-LogLevel {
     param([LogLevel]$Level)
-    $Global:Logger.MinimumLevel = $Level
+    $Global:LoggerConfig.MinimumLevel = $Level
 }
 
 function Set-LogPrefix {
     param([string]$Prefix)
-    $Global:Logger.LogPrefix = $Prefix
+    $Global:LoggerConfig.LogPrefix = $Prefix
 }
 
 function Write-InfoLog {
@@ -87,7 +65,7 @@ function Write-InfoLog {
         [string]$Message,
         [hashtable]$Properties = @{}
     )
-    $Global:Logger.Info($Message, $Properties)
+    Write-Log -Level ([LogLevel]::Info) -Message $Message -Properties $Properties
 }
 
 function Write-WarningLog {
@@ -95,7 +73,7 @@ function Write-WarningLog {
         [string]$Message,
         [hashtable]$Properties = @{}
     )
-    $Global:Logger.Warning($Message, $Properties)
+    Write-Log -Level ([LogLevel]::Warning) -Message $Message -Properties $Properties
 }
 
 function Write-ErrorLog {
@@ -103,7 +81,7 @@ function Write-ErrorLog {
         [string]$Message,
         [hashtable]$Properties = @{}
     )
-    $Global:Logger.Error($Message, $Properties)
+    Write-Log -Level ([LogLevel]::Error) -Message $Message -Properties $Properties
 }
 
 function Write-CriticalLog {
@@ -111,7 +89,8 @@ function Write-CriticalLog {
         [string]$Message,
         [hashtable]$Properties = @{}
     )
-    $Global:Logger.Critical($Message, $Properties)
+    Write-Log -Level ([LogLevel]::Critical) -Message $Message -Properties $Properties
+    throw $Message
 }
 
 function Write-DebugLog {
@@ -119,16 +98,5 @@ function Write-DebugLog {
         [string]$Message,
         [hashtable]$Properties = @{}
     )
-    $Global:Logger.Debug($Message, $Properties)
+    Write-Log -Level ([LogLevel]::Debug) -Message $Message -Properties $Properties
 }
-
-# Export functions for module usage
-Export-ModuleMember -Function @(
-    'Set-LogLevel',
-    'Set-LogPrefix', 
-    'Write-InfoLog',
-    'Write-WarningLog',
-    'Write-ErrorLog',
-    'Write-CriticalLog',
-    'Write-DebugLog'
-) -Variable @('Logger')
