@@ -1,0 +1,66 @@
+# Logs
+*.log
+logs/
+
+# PowerShell
+*.ps1xml
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Build artifacts
+*.bacpac
+*.bak
+
+# Environment files
+.env
+.env.*
+!.env.template
+
+# Secrets
+secrets.json
+appsettings.Development.json
+
+# IDE files
+.vscode/
+.vs/
+*.suo
+*.user
+
+# Docker
+.dockerignore
+
+# Azure
+.azure/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Test results
+TestResults/
+coverage/
+
+# Package files
+*.zip
+*.tar.gz
+*.tgz
+
+# SQL files (except examples)
+*.sql
+!examples/*.sql
+
+# Backup files
+*.bak
+*.backup
+
+# Cache directories
+cache/
+.cache/
