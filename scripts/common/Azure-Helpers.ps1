@@ -200,6 +200,26 @@ function Export-SqlDatabase {
                 $sqlPackageArgs += "/TenantId:$TenantId"
             }
             
+            # For CI/CD environments, add non-interactive authentication
+            # This prevents authentication prompts in automated environments
+            if ($env:SYSTEM_TEAMPROJECTID -or $env:GITHUB_ACTIONS -or $env:CI -or $env:BUILD_BUILDID) {
+                Write-InfoLog "CI/CD environment detected - using non-interactive authentication"
+                
+                # Check if we have a valid Azure CLI token
+                $tokenCheck = az account get-access-token --query "accessToken" -o tsv 2>$null
+                if ($LASTEXITCODE -ne 0 -or -not $tokenCheck) {
+                    Write-CriticalLog "No valid Azure CLI authentication found. In CI/CD environments, ensure the Azure CLI task or azure/login action has been executed with appropriate service principal credentials."
+                }
+                
+                # Use Azure CLI token for SqlPackage authentication
+                # This leverages the existing service principal authentication from the pipeline
+                $sqlPackageArgs += "/AccessToken:$tokenCheck"
+                
+                # Remove UniversalAuthentication when using AccessToken
+                $sqlPackageArgs = $sqlPackageArgs | Where-Object { $_ -ne "/UniversalAuthentication:True" }
+            }
+            }
+            
             Write-InfoLog "Using Azure AD authentication for export"
         }
         

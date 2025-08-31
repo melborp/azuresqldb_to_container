@@ -64,9 +64,17 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
    # Check Azure CLI
    az --version
    
+   # Check SqlPackage
+   sqlpackage /version
+   
    # Check Docker
    docker --version
    ```
+
+3. **Authentication setup**:
+   - **Development**: `az login` for interactive Azure AD authentication
+   - **CI/CD**: Use service principal via Azure CLI task/action ([CI/CD Guide](docs/CI-CD-Authentication.md))
+   - **Fallback**: SQL authentication with `-AdminUser` and `-AdminPassword`
 
 3. **Login to Azure**:
    ```bash

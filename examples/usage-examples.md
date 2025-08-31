@@ -88,11 +88,13 @@ variables:
   imageTag: '$(Build.BuildNumber)'
 
 steps:
-- task: PowerShell@2
+- task: AzureCLI@2
   displayName: 'Export Database and Build Container'
   inputs:
-    targetType: 'filePath'
-    filePath: 'build.ps1'
+    azureSubscription: 'your-service-connection'  # Service connection name
+    scriptType: 'pscore'
+    scriptLocation: 'scriptPath'
+    scriptPath: 'build.ps1'
     arguments: |
       -SubscriptionId $(AZURE_SUBSCRIPTION_ID)
       -ResourceGroupName $(RESOURCE_GROUP_NAME)
@@ -107,16 +109,9 @@ steps:
       -MigrationScriptPaths $(MIGRATION_SCRIPTS)
       -UpgradeScriptPaths $(UPGRADE_SCRIPTS)
       -LogLevel "Info"
-    workingDirectory: '$(Build.SourcesDirectory)'
-  env:
-    AZURE_SUBSCRIPTION_ID: $(azureSubscriptionId)
-    RESOURCE_GROUP_NAME: $(resourceGroupName)
-    SQL_SERVER_NAME: $(sqlServerName)
-    DATABASE_NAME: $(databaseName)
-    STORAGE_ACCOUNT_NAME: $(storageAccountName)
-    MIGRATION_SCRIPTS: $(migrationScripts)
-    UPGRADE_SCRIPTS: $(upgradeScripts)
 ```
+
+**Note**: The AzureCLI@2 task automatically handles service principal authentication, making the scripts run without prompts.
 
 ### GitHub Actions
 
