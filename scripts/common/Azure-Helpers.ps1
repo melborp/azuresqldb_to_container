@@ -80,7 +80,7 @@ function Set-AzureSubscription {
 function Export-SqlDatabase {
     <#
     .SYNOPSIS
-    Exports an Azure SQL Database to BACPAC format
+    Exports an Azure SQL Database to BACPAC format using SqlPackage utility
     
     .PARAMETER ResourceGroupName
     The resource group containing the SQL server
@@ -105,6 +105,9 @@ function Export-SqlDatabase {
     
     .PARAMETER AdminPassword
     SQL server admin password (optional, uses Azure AD if not provided)
+    
+    .PARAMETER TenantId
+    Azure AD tenant ID (optional, will attempt to detect automatically)
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -129,11 +132,14 @@ function Export-SqlDatabase {
         [string]$AdminUser,
         
         [Parameter(Mandatory = $false)]
-        [string]$AdminPassword
+        [string]$AdminPassword,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$TenantId
     )
     
     try {
-        Write-InfoLog "Starting database export..." @{
+        Write-InfoLog "Starting database export using SqlPackage..." @{
             ResourceGroup = $ResourceGroupName
             Server = $ServerName
             Database = $DatabaseName
@@ -142,6 +148,137 @@ function Export-SqlDatabase {
             BacpacFile = $BacpacFileName
         }
         
+        # Check if SqlPackage is available
+        Write-InfoLog "Checking SqlPackage availability..."
+        try {
+            $sqlPackageVersion = & sqlpackage /version 2>$null
+            Write-InfoLog "SqlPackage found: $sqlPackageVersion"
+        }
+        catch {
+            Write-CriticalLog "SqlPackage utility not found. Please install SqlPackage from https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage-download"
+        }
+        
+        # Create local export path
+        $tempDir = [System.IO.Path]::GetTempPath()
+        $localBacpacPath = Join-Path $tempDir $BacpacFileName
+        Write-InfoLog "Local BACPAC path: $localBacpacPath"
+        
+        # Build connection string
+        $serverFqdn = if ($ServerName.Contains('.')) { $ServerName } else { "$ServerName.database.windows.net" }
+        $connectionString = "Data Source=$serverFqdn;Initial Catalog=$DatabaseName;"
+        
+        # Build SqlPackage arguments
+        $sqlPackageArgs = @(
+            "/Action:Export"
+            "/TargetFile:$localBacpacPath"
+            "/SourceConnectionString:$connectionString"
+        )
+        
+        # Add authentication
+        if ($AdminUser -and $AdminPassword) {
+            # SQL Authentication
+            $sqlPackageArgs += "/SourceUser:$AdminUser"
+            $sqlPackageArgs += "/SourcePassword:$AdminPassword"
+            Write-InfoLog "Using SQL authentication for export"
+        } else {
+            # Azure AD Authentication
+            $sqlPackageArgs += "/UniversalAuthentication:True"
+            
+            # Get tenant ID if not provided
+            if (-not $TenantId) {
+                Write-InfoLog "Detecting Azure AD tenant ID..."
+                $tenantInfo = az account show --query "tenantId" -o tsv 2>$null
+                if ($LASTEXITCODE -eq 0 -and $tenantInfo) {
+                    $TenantId = $tenantInfo.Trim()
+                    Write-InfoLog "Detected tenant ID: $TenantId"
+                } else {
+                    Write-WarningLog "Could not detect tenant ID automatically. Proceeding without explicit tenant ID."
+                }
+            }
+            
+            if ($TenantId) {
+                $sqlPackageArgs += "/TenantId:$TenantId"
+            }
+            
+            Write-InfoLog "Using Azure AD authentication for export"
+        }
+        
+        # Execute SqlPackage export
+        Write-InfoLog "Executing SqlPackage export..." @{
+            Command = "sqlpackage $($sqlPackageArgs -join ' ')"
+        }
+        
+        $exportResult = & sqlpackage @sqlPackageArgs 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-CriticalLog "SqlPackage export failed: $exportResult"
+        }
+        
+        # Verify local BACPAC file was created
+        if (-not (Test-Path $localBacpacPath)) {
+            Write-CriticalLog "BACPAC file was not created at expected location: $localBacpacPath"
+        }
+        
+        $fileSize = (Get-Item $localBacpacPath).Length
+        Write-InfoLog "BACPAC export completed successfully" @{
+            LocalPath = $localBacpacPath
+            FileSizeBytes = $fileSize
+            FileSizeMB = [math]::Round($fileSize / 1MB, 2)
+        }
+        
+        # Upload to Azure Blob Storage
+        Write-InfoLog "Uploading BACPAC to Azure Blob Storage..."
+        $uploadSuccess = Export-BacpacToStorage -LocalBacpacPath $localBacpacPath -StorageAccountName $StorageAccountName -ContainerName $ContainerName -BlobName $BacpacFileName -ResourceGroupName $ResourceGroupName
+        
+        if (-not $uploadSuccess) {
+            Write-CriticalLog "Failed to upload BACPAC to Azure Blob Storage"
+        }
+        
+        # Cleanup local file
+        Write-InfoLog "Cleaning up local BACPAC file..."
+        Remove-Item $localBacpacPath -Force -ErrorAction SilentlyContinue
+        
+        Write-InfoLog "Database export completed successfully" @{
+            BacpacLocation = "https://$StorageAccountName.blob.core.windows.net/$ContainerName/$BacpacFileName"
+        }
+        
+        return $true
+    }
+    catch {
+        Write-CriticalLog "Error during database export: $($_.Exception.Message)"
+        
+        # Cleanup on error
+        if ($localBacpacPath -and (Test-Path $localBacpacPath)) {
+            Remove-Item $localBacpacPath -Force -ErrorAction SilentlyContinue
+        }
+        
+        return $false
+    }
+}
+
+function Export-BacpacToStorage {
+    <#
+    .SYNOPSIS
+    Uploads a local BACPAC file to Azure Blob Storage
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LocalBacpacPath,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$StorageAccountName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$BlobName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$ResourceGroupName
+    )
+    
+    try {
         # Get storage account key
         Write-InfoLog "Retrieving storage account key..."
         $storageKey = az storage account keys list --resource-group $ResourceGroupName --account-name $StorageAccountName --query "[0].value" -o tsv
@@ -149,65 +286,20 @@ function Export-SqlDatabase {
             Write-CriticalLog "Failed to retrieve storage account key"
         }
         
-        # Build export command
-        $exportArgs = @(
-            "sql", "db", "export"
-            "--resource-group", $ResourceGroupName
-            "--server", $ServerName
-            "--name", $DatabaseName
-            "--storage-key-type", "StorageAccessKey"
-            "--storage-key", $storageKey
-            "--storage-uri", "https://$StorageAccountName.blob.core.windows.net/$ContainerName/$BacpacFileName"
-        )
-        
-        # Add authentication - SQL credentials are required for az sql db export
-        if ($AdminUser -and $AdminPassword) {
-            $exportArgs += @("--admin-user", $AdminUser, "--admin-password", $AdminPassword)
-            Write-InfoLog "Using SQL authentication for export"
-        } else {
-            Write-CriticalLog "SQL admin credentials are required for database export. Azure CLI 'az sql db export' does not support Azure AD authentication. Please provide -AdminUser and -AdminPassword parameters with SQL Server admin credentials."
-        }
-        
-        # Start export
-        Write-InfoLog "Initiating database export operation..."
-        Write-InfoLog "Running command: az $($exportArgs -join ' ')"
-        $exportOutput = & az @exportArgs 2>&1
+        # Upload file
+        Write-InfoLog "Uploading BACPAC file to blob storage..."
+        $uploadResult = az storage blob upload --account-name $StorageAccountName --account-key $storageKey --container-name $ContainerName --name $BlobName --file $LocalBacpacPath --auth-mode key 2>&1
         
         if ($LASTEXITCODE -ne 0) {
-            Write-CriticalLog "Database export initiation failed: $exportOutput"
+            Write-CriticalLog "Failed to upload BACPAC to blob storage: $uploadResult"
         }
         
-        # Try to parse as JSON, handle errors gracefully
-        try {
-            $exportResult = $exportOutput | ConvertFrom-Json
-        }
-        catch {
-            Write-CriticalLog "Failed to parse export command output as JSON. Raw output: $exportOutput"
-        }
-        
-        $operationId = $exportResult.name
-        Write-InfoLog "Export operation started with ID: $operationId"
-        
-        # Monitor export progress
-        Write-InfoLog "Monitoring export progress..."
-        do {
-            Start-Sleep -Seconds 30
-            $status = az sql db export show --resource-group $ResourceGroupName --server $ServerName --name $operationId --query "status" -o tsv
-            Write-InfoLog "Export status: $status"
-        } while ($status -eq "InProgress")
-        
-        if ($status -eq "Succeeded") {
-            Write-InfoLog "Database export completed successfully" @{
-                OperationId = $operationId
-                BacpacLocation = "https://$StorageAccountName.blob.core.windows.net/$ContainerName/$BacpacFileName"
-            }
-            return $true
-        } else {
-            Write-CriticalLog "Database export failed with status: $status"
-        }
+        Write-InfoLog "BACPAC uploaded successfully to blob storage"
+        return $true
     }
     catch {
-        Write-CriticalLog "Error during database export: $($_.Exception.Message)"
+        Write-CriticalLog "Error uploading BACPAC to storage: $($_.Exception.Message)"
+        return $false
     }
 }
 

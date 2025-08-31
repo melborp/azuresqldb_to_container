@@ -18,6 +18,7 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
 
 - **PowerShell 7.x+** (PowerShell Core)
 - **Azure CLI** with active login session
+- **SqlPackage Utility** for database export operations ([Installation Guide](docs/SqlPackage-Installation.md))
 - **Docker** (Desktop or Engine)
 - **Azure Subscription** with appropriate permissions
 
@@ -241,7 +242,7 @@ The toolkit is designed for seamless CI/CD integration:
 ## 🔐 Security Considerations
 
 - **No Secrets in Code**: All sensitive data passed as parameters
-- **Azure AD Authentication**: Preferred over SQL authentication
+- **Azure AD Authentication**: Fully supported via SqlPackage - preferred over SQL authentication
 - **Least Privilege**: Scripts request only necessary permissions
 - **Audit Logging**: All operations logged for compliance
 - **Credential Isolation**: Use CI/CD secret management

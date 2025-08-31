@@ -1,10 +1,14 @@
 # Export-AzureSqlDatabase.ps1
 # Exports an Azure SQL Database to BACPAC format and uploads to Azure Blob Storage
 #
-# IMPORTANT: This script requires SQL Server admin credentials (-AdminUser and -AdminPassword)
-# because Azure CLI's 'az sql db export' command does not support Azure AD authentication.
-# While the script uses Azure AD for Azure resource management (storage, etc.), 
-# SQL authentication is required specifically for the database export operation.
+# This script uses SqlPackage utility for database export, which supports both SQL 
+# authentication and Azure AD authentication. Azure AD authentication is recommended 
+# for better security and eliminates the need to manage SQL credentials.
+#
+# Prerequisites:
+# - SqlPackage utility must be installed and available in PATH
+# - Azure CLI for Azure resource management (storage account access)
+# - Appropriate permissions for the database and storage account
 
 [CmdletBinding()]
 param(
@@ -29,11 +33,14 @@ param(
     [Parameter(Mandatory = $true, HelpMessage = "BACPAC file name")]
     [string]$BacpacFileName,
     
-    [Parameter(Mandatory = $false, HelpMessage = "SQL server admin username (optional, uses Azure AD if not provided)")]
+    [Parameter(Mandatory = $false, HelpMessage = "SQL server admin username (optional, uses Azure AD authentication if not provided)")]
     [string]$AdminUser,
     
-    [Parameter(Mandatory = $false, HelpMessage = "SQL server admin password (optional, uses Azure AD if not provided)")]
+    [Parameter(Mandatory = $false, HelpMessage = "SQL server admin password (optional, uses Azure AD authentication if not provided)")]
     [string]$AdminPassword,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Azure AD tenant ID (optional, will be auto-detected if not provided)")]
+    [string]$TenantId,
     
     [Parameter(Mandatory = $false, HelpMessage = "Log level (Debug, Info, Warning, Error, Critical)")]
     [ValidateSet("Debug", "Info", "Warning", "Error", "Critical")]
@@ -100,7 +107,7 @@ function main {
         }
         
         # Export database
-        $exportSuccess = Export-SqlDatabase -ResourceGroupName $ResourceGroupName -ServerName $ServerName -DatabaseName $DatabaseName -StorageAccountName $StorageAccountName -ContainerName $ContainerName -BacpacFileName $BacpacFileName -AdminUser $AdminUser -AdminPassword $AdminPassword
+        $exportSuccess = Export-SqlDatabase -ResourceGroupName $ResourceGroupName -ServerName $ServerName -DatabaseName $DatabaseName -StorageAccountName $StorageAccountName -ContainerName $ContainerName -BacpacFileName $BacpacFileName -AdminUser $AdminUser -AdminPassword $AdminPassword -TenantId $TenantId
         
         if (-not $exportSuccess) {
             Write-CriticalLog "Database export failed"
