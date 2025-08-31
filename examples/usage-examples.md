@@ -52,8 +52,12 @@ This document provides examples of how to use the BACPAC to Container toolkit in
     -DatabaseName "MyDatabase" `
     -StorageAccountName "mystorageaccount" `
     -ContainerName "bacpacs" `
-    -BacpacFileName "mydatabase.bacpac"
+    -BacpacFileName "mydatabase.bacpac" `
+    -AdminUser "sqladmin" `
+    -AdminPassword "P@ssw0rd123"
 ```
+
+**Note**: SQL admin credentials are required for database export as Azure CLI does not support Azure AD authentication for the `az sql db export` command.
 
 ## CI/CD Integration Examples
 
@@ -170,7 +174,7 @@ jobs:
     -AdminUser "sqladmin" `
     -AdminPassword "P@ssw0rd123"
 
-# With Azure AD Authentication (recommended)
+# With Azure AD Authentication (recommended for Azure resources, but SQL credentials required for database export)
 .\scripts\Export-AzureSqlDatabase.ps1 `
     -SubscriptionId "12345678-1234-1234-1234-123456789abc" `
     -ResourceGroupName "my-rg" `
@@ -178,7 +182,9 @@ jobs:
     -DatabaseName "MyDatabase" `
     -StorageAccountName "mystorageaccount" `
     -ContainerName "bacpacs" `
-    -BacpacFileName "mydatabase.bacpac"
+    -BacpacFileName "mydatabase.bacpac" `
+    -AdminUser "sqladmin" `
+    -AdminPassword "P@ssw0rd123"
 ```
 
 ### Build Script

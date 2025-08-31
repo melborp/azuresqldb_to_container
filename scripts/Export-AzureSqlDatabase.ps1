@@ -1,5 +1,10 @@
 # Export-AzureSqlDatabase.ps1
 # Exports an Azure SQL Database to BACPAC format and uploads to Azure Blob Storage
+#
+# IMPORTANT: This script requires SQL Server admin credentials (-AdminUser and -AdminPassword)
+# because Azure CLI's 'az sql db export' command does not support Azure AD authentication.
+# While the script uses Azure AD for Azure resource management (storage, etc.), 
+# SQL authentication is required specifically for the database export operation.
 
 [CmdletBinding()]
 param(

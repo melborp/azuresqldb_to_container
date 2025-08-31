@@ -160,20 +160,29 @@ function Export-SqlDatabase {
             "--storage-uri", "https://$StorageAccountName.blob.core.windows.net/$ContainerName/$BacpacFileName"
         )
         
-        # Add authentication if provided
+        # Add authentication - SQL credentials are required for az sql db export
         if ($AdminUser -and $AdminPassword) {
             $exportArgs += @("--admin-user", $AdminUser, "--admin-password", $AdminPassword)
             Write-InfoLog "Using SQL authentication for export"
         } else {
-            Write-InfoLog "Using Azure AD authentication for export"
+            Write-CriticalLog "SQL admin credentials are required for database export. Azure CLI 'az sql db export' does not support Azure AD authentication. Please provide -AdminUser and -AdminPassword parameters with SQL Server admin credentials."
         }
         
         # Start export
         Write-InfoLog "Initiating database export operation..."
-        $exportResult = & az @exportArgs 2>&1 | ConvertFrom-Json
+        Write-InfoLog "Running command: az $($exportArgs -join ' ')"
+        $exportOutput = & az @exportArgs 2>&1
         
         if ($LASTEXITCODE -ne 0) {
-            Write-CriticalLog "Database export initiation failed: $exportResult"
+            Write-CriticalLog "Database export initiation failed: $exportOutput"
+        }
+        
+        # Try to parse as JSON, handle errors gracefully
+        try {
+            $exportResult = $exportOutput | ConvertFrom-Json
+        }
+        catch {
+            Write-CriticalLog "Failed to parse export command output as JSON. Raw output: $exportOutput"
         }
         
         $operationId = $exportResult.name
