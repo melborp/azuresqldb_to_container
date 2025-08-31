@@ -218,7 +218,6 @@ function Export-SqlDatabase {
                 # Remove UniversalAuthentication when using AccessToken
                 $sqlPackageArgs = $sqlPackageArgs | Where-Object { $_ -ne "/UniversalAuthentication:True" }
             }
-            }
             
             Write-InfoLog "Using Azure AD authentication for export"
         }
