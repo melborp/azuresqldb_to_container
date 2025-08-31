@@ -182,50 +182,59 @@ function Export-SqlDatabase {
             Write-InfoLog "Using SQL authentication for export"
         } else {
             # Azure AD Authentication
-            $sqlPackageArgs += "/UniversalAuthentication:True"
+            Write-InfoLog "Using Azure AD authentication for export"
             
-            # Get tenant ID if not provided
-            if (-not $TenantId) {
-                Write-InfoLog "Detecting Azure AD tenant ID..."
-                $tenantInfo = az account show --query "tenantId" -o tsv 2>$null
-                if ($LASTEXITCODE -eq 0 -and $tenantInfo) {
-                    $TenantId = $tenantInfo.Trim()
-                    Write-InfoLog "Detected tenant ID: $TenantId"
-                } else {
-                    Write-WarningLog "Could not detect tenant ID automatically. Proceeding without explicit tenant ID."
-                }
-            }
-            
-            if ($TenantId) {
-                $sqlPackageArgs += "/TenantId:$TenantId"
-            }
-            
-            # For CI/CD environments, add non-interactive authentication
-            # This prevents authentication prompts in automated environments
+            # For CI/CD environments, use access token authentication
             if ($env:SYSTEM_TEAMPROJECTID -or $env:GITHUB_ACTIONS -or $env:CI -or $env:BUILD_BUILDID) {
-                Write-InfoLog "CI/CD environment detected - using non-interactive authentication"
+                Write-InfoLog "CI/CD environment detected - using access token authentication"
                 
-                # Check if we have a valid Azure CLI token
-                $tokenCheck = az account get-access-token --query "accessToken" -o tsv 2>$null
+                # Get SQL Database specific token (not Azure Management token)
+                Write-InfoLog "Getting SQL Database access token..."
+                $tokenCheck = az account get-access-token --resource "https://database.windows.net/" --query "accessToken" -o tsv 2>$null
                 if ($LASTEXITCODE -ne 0 -or -not $tokenCheck) {
                     Write-CriticalLog "No valid Azure CLI authentication found. In CI/CD environments, ensure the Azure CLI task or azure/login action has been executed with appropriate service principal credentials."
                 }
                 
-                # Use Azure CLI token for SqlPackage authentication
-                # This leverages the existing service principal authentication from the pipeline
+                # Use SQL Database token for SqlPackage authentication
                 $sqlPackageArgs += "/AccessToken:$tokenCheck"
                 
-                # Remove UniversalAuthentication when using AccessToken
-                $sqlPackageArgs = $sqlPackageArgs | Where-Object { $_ -ne "/UniversalAuthentication:True" }
+            } else {
+                # Interactive environment - try Universal Authentication first
+                Write-InfoLog "Interactive environment - using Universal Authentication"
+                $sqlPackageArgs += "/UniversalAuthentication:True"
+                
+                # Get tenant ID if not provided (helps with authentication)
+                if (-not $TenantId) {
+                    Write-InfoLog "Detecting Azure AD tenant ID..."
+                    $tenantInfo = az account show --query "tenantId" -o tsv 2>$null
+                    if ($LASTEXITCODE -eq 0 -and $tenantInfo) {
+                        $TenantId = $tenantInfo.Trim()
+                        Write-InfoLog "Detected tenant ID: $TenantId"
+                    }
+                }
+                
+                # Add tenant ID if available (required for some environments)
+                if ($TenantId) {
+                    $sqlPackageArgs += "/TenantId:$TenantId"
+                }
             }
-            
-            Write-InfoLog "Using Azure AD authentication for export"
         }
         
         # Execute SqlPackage export
         Write-InfoLog "Executing SqlPackage export..." @{
             Command = "sqlpackage $($sqlPackageArgs -join ' ')"
+            ParameterCount = $sqlPackageArgs.Count
         }
+        
+        # Debug: Show actual parameters (excluding sensitive data)
+        $debugArgs = $sqlPackageArgs | ForEach-Object { 
+            if ($_ -like "/SourcePassword:*" -or $_ -like "/AccessToken:*") { 
+                $_.Split(':')[0] + ":[REDACTED]" 
+            } else { 
+                $_ 
+            } 
+        }
+        Write-InfoLog "SqlPackage parameters: $($debugArgs -join ' ')"
         
         $exportResult = & sqlpackage @sqlPackageArgs 2>&1
         
@@ -307,7 +316,7 @@ function Export-BacpacToStorage {
         
         # Upload file
         Write-InfoLog "Uploading BACPAC file to blob storage..."
-        $uploadResult = az storage blob upload --account-name $StorageAccountName --account-key $storageKey --container-name $ContainerName --name $BlobName --file $LocalBacpacPath --auth-mode key 2>&1
+        $uploadResult = az storage blob upload --account-name $StorageAccountName --account-key $storageKey --container-name $ContainerName --name $BlobName --file $LocalBacpacPath --auth-mode key --overwrite 2>&1
         
         if ($LASTEXITCODE -ne 0) {
             Write-CriticalLog "Failed to upload BACPAC to blob storage: $uploadResult"
