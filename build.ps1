@@ -75,7 +75,10 @@ param(
     
     [Parameter(Mandatory = $false, HelpMessage = "Log level (Debug, Info, Warning, Error, Critical)")]
     [ValidateSet("Debug", "Info", "Warning", "Error", "Critical")]
-    [string]$LogLevel = "Info"
+    [string]$LogLevel = "Info",
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Skip Docker installation validation")]
+    [switch]$SkipDockerValidation
 )
 
 # Import helper modules
@@ -187,6 +190,7 @@ function Invoke-ContainerBuild {
         SqlServerPassword = $SqlServerPassword
         DatabaseName = $ImportedDatabaseName
         LogLevel = $LogLevel
+        SkipDockerValidation = $SkipDockerValidation
     }
     
     if ($MigrationScriptPaths.Count -gt 0) {

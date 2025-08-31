@@ -35,13 +35,17 @@ param(
     [string]$LogLevel = "Info",
     
     [Parameter(Mandatory = $false, HelpMessage = "Temporary directory for build context")]
-    [string]$TempDirectory = $null
+    [string]$TempDirectory = $null,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Skip Docker installation validation")]
+    [switch]$SkipDockerValidation
 )
 
 # Import helper modules
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 . "$scriptDir\common\Logging-Helpers.ps1"
 . "$scriptDir\common\Docker-Helpers.ps1"
+. "$scriptDir\common\Azure-Helpers.ps1"
 
 # Configure logging
 Set-LogLevel $LogLevel
@@ -100,10 +104,21 @@ function Get-BacpacFile {
         }
         
         try {
-            # Use PowerShell to download with progress
-            $webClient = New-Object System.Net.WebClient
-            $webClient.DownloadFile($BacpacPath, $localBacpacPath)
-            $webClient.Dispose()
+            # Check if this is an Azure blob URL
+            if ($BacpacPath -match "https://([^.]+)\.blob\.core\.windows\.net/") {
+                Write-InfoLog "Detected Azure Blob Storage URL, using Azure CLI authentication..."
+                $downloadSuccess = Download-BacpacFromStorage -BlobUrl $BacpacPath -LocalPath $localBacpacPath
+                if (-not $downloadSuccess) {
+                    Write-CriticalLog "Failed to download BACPAC from Azure Blob Storage"
+                }
+            }
+            else {
+                # Use PowerShell WebClient for non-Azure URLs
+                Write-InfoLog "Using standard HTTP download..."
+                $webClient = New-Object System.Net.WebClient
+                $webClient.DownloadFile($BacpacPath, $localBacpacPath)
+                $webClient.Dispose()
+            }
         }
         catch {
             Write-CriticalLog "Failed to download BACPAC file: $($_.Exception.Message)"
@@ -187,8 +202,12 @@ function main {
         # Validate prerequisites
         Write-InfoLog "Validating prerequisites..."
         
-        if (-not (Test-DockerInstallation)) {
-            Write-CriticalLog "Docker installation validation failed"
+        if (-not $SkipDockerValidation) {
+            if (-not (Test-DockerInstallation)) {
+                Write-CriticalLog "Docker installation validation failed"
+            }
+        } else {
+            Write-InfoLog "Skipping Docker validation as requested"
         }
         
         # Validate script files

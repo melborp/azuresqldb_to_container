@@ -413,3 +413,130 @@ function Get-BlobDownloadUrl {
         Write-CriticalLog "Error generating blob download URL: $($_.Exception.Message)"
     }
 }
+
+function Download-BacpacFromStorage {
+    <#
+    .SYNOPSIS
+    Downloads a BACPAC file from Azure Blob Storage using Azure CLI authentication or SAS token
+    
+    .PARAMETER BlobUrl
+    The full blob URL (https://account.blob.core.windows.net/container/blob or with SAS token)
+    
+    .PARAMETER LocalPath
+    The local path where the file should be downloaded
+    
+    .PARAMETER ResourceGroupName
+    The resource group containing the storage account (optional for SAS token generation)
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BlobUrl,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$LocalPath,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$ResourceGroupName = $null
+    )
+    
+    try {
+        # Check if URL already contains SAS token
+        if ($BlobUrl -match '\?.*sv=') {
+            Write-InfoLog "URL contains SAS token, using direct download..."
+            
+            # Use WebClient for SAS token URLs
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($BlobUrl, $LocalPath)
+            $webClient.Dispose()
+            
+            # Verify the file was downloaded
+            if (-not (Test-Path $LocalPath)) {
+                Write-CriticalLog "BACPAC file was not downloaded successfully"
+            }
+            
+            $fileSize = (Get-Item $LocalPath).Length
+            Write-InfoLog "BACPAC downloaded successfully" @{
+                LocalPath = $LocalPath
+                SizeBytes = $fileSize
+            }
+            
+            return $true
+        }
+        
+        # Parse the blob URL to extract components
+        $uri = [System.Uri]$BlobUrl
+        $pathParts = $uri.AbsolutePath.TrimStart('/').Split('/', 2)
+        
+        if ($pathParts.Length -ne 2) {
+            Write-CriticalLog "Invalid blob URL format. Expected: https://account.blob.core.windows.net/container/blob"
+        }
+        
+        $storageAccountName = $uri.Host.Split('.')[0]
+        $containerName = $pathParts[0]
+        $blobName = $pathParts[1]
+        
+        Write-InfoLog "Downloading blob with Azure CLI authentication..." @{
+            StorageAccount = $storageAccountName
+            Container = $containerName
+            Blob = $blobName
+            LocalPath = $LocalPath
+        }
+        
+        # Try to download using Azure CLI with current authentication
+        $downloadResult = az storage blob download --account-name $storageAccountName --container-name $containerName --name $blobName --file $LocalPath --auth-mode login --overwrite 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorLog "Failed to download with login auth, trying with account key..."
+            
+            # If direct download fails and we have resource group, try with account key
+            if ($ResourceGroupName) {
+                $storageKey = az storage account keys list --resource-group $ResourceGroupName --account-name $storageAccountName --query "[0].value" -o tsv 2>$null
+                
+                if ($LASTEXITCODE -eq 0 -and $storageKey) {
+                    $downloadResult = az storage blob download --account-name $storageAccountName --account-key $storageKey --container-name $containerName --name $blobName --file $LocalPath --overwrite 2>&1
+                    
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-CriticalLog "Failed to download BACPAC with account key: $downloadResult"
+                    }
+                } else {
+                    Write-ErrorLog "Could not retrieve account key, trying to generate SAS token..."
+                    
+                    # Try to generate SAS token as fallback
+                    try {
+                        $sasUrl = Get-BlobDownloadUrl -StorageAccountName $storageAccountName -ContainerName $containerName -BlobName $blobName -ExpiryHours 1
+                        if ($sasUrl) {
+                            Write-InfoLog "Generated SAS token, downloading with WebClient..."
+                            $webClient = New-Object System.Net.WebClient
+                            $webClient.DownloadFile($sasUrl, $LocalPath)
+                            $webClient.Dispose()
+                        } else {
+                            Write-CriticalLog "Failed to download BACPAC with all available methods: $downloadResult"
+                        }
+                    }
+                    catch {
+                        Write-CriticalLog "Failed to download BACPAC with login auth and could not generate SAS token: $downloadResult"
+                    }
+                }
+            } else {
+                Write-CriticalLog "Failed to download BACPAC with login auth: $downloadResult"
+            }
+        }
+        
+        # Verify the file was downloaded
+        if (-not (Test-Path $LocalPath)) {
+            Write-CriticalLog "BACPAC file was not downloaded successfully"
+        }
+        
+        $fileSize = (Get-Item $LocalPath).Length
+        Write-InfoLog "BACPAC downloaded successfully" @{
+            LocalPath = $LocalPath
+            SizeBytes = $fileSize
+        }
+        
+        return $true
+    }
+    catch {
+        Write-CriticalLog "Error downloading BACPAC from storage: $($_.Exception.Message)"
+        return $false
+    }
+}
