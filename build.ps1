@@ -178,30 +178,32 @@ function Invoke-ContainerBuild {
     
     # Build container command
     $buildScript = Join-Path $scriptsDir "Build-SqlContainer.ps1"
-    $buildArgs = @(
-        "-BacpacPath", $bacpacSource
-        "-ImageName", $ImageName
-        "-ImageTag", $ImageTag
-        "-SqlServerPassword", $SqlServerPassword
-        "-DatabaseName", $ImportedDatabaseName
-        "-LogLevel", $LogLevel
-    )
+    
+    # Build parameter hashtable for explicit binding
+    $buildParams = @{
+        BacpacPath = $bacpacSource
+        ImageName = $ImageName
+        ImageTag = $ImageTag
+        SqlServerPassword = $SqlServerPassword
+        DatabaseName = $ImportedDatabaseName
+        LogLevel = $LogLevel
+    }
     
     if ($MigrationScriptPaths.Count -gt 0) {
-        $buildArgs += @("-MigrationScriptPaths", $MigrationScriptPaths)
+        $buildParams.MigrationScriptPaths = $MigrationScriptPaths
     }
     
     if ($UpgradeScriptPaths.Count -gt 0) {
-        $buildArgs += @("-UpgradeScriptPaths", $UpgradeScriptPaths)
+        $buildParams.UpgradeScriptPaths = $UpgradeScriptPaths
     }
     
     if ($NoCache) {
-        $buildArgs += "-NoCache"
+        $buildParams.NoCache = $true
     }
     
     # Execute build
     Write-InfoLog "Executing container build script..."
-    & $buildScript @buildArgs
+    & $buildScript @buildParams
     
     if ($LASTEXITCODE -ne 0) {
         Write-CriticalLog "Container build failed with exit code: $LASTEXITCODE"
