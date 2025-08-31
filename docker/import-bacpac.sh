@@ -103,7 +103,9 @@ main() {
     
     # Gracefully shutdown SQL Server
     log "Shutting down SQL Server after import..."
-    kill $SQLSERVER_PID
+    /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SHUTDOWN WITH NOWAIT" || true
+    sleep 5
+    kill $SQLSERVER_PID 2>/dev/null || true
     wait $SQLSERVER_PID 2>/dev/null || true
     
     log "=== BACPAC Import During Build Completed Successfully ==="

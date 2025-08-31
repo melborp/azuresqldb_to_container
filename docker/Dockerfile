@@ -62,9 +62,9 @@ ENV SA_PASSWORD=$SA_PASSWORD
 ENV DATABASE_NAME=$DATABASE_NAME
 ENV MSSQL_PID=Express
 
-# Install runtime dependencies
+# Install runtime dependencies (fix empty install)
 USER root
-RUN apt-get update && apt-get install -y \
+RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories for scripts and logs
@@ -83,8 +83,8 @@ RUN chmod +x /opt/mssql-tools/bin/*.sh
 COPY sql-scripts/migrations/ /var/opt/mssql/scripts/migrations/
 COPY sql-scripts/upgrades/ /var/opt/mssql/scripts/upgrades/
 
-# Copy database files from builder stage
-COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/
+# Copy database files from builder stage (if they exist)
+COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/ || true
 
 # Set permissions
 RUN chown -R mssql:root /var/opt/mssql/ \
