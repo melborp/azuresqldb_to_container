@@ -1,5 +1,6 @@
-# Multi-stage Dockerfile for SQL Server with BACPAC import and script execution
-FROM mcr.microsoft.com/mssql/server:2022-latest
+# Multi-stage Dockerfile for SQL Server with BACPAC import during build
+# Stage 1: Import BACPAC and create database
+FROM mcr.microsoft.com/mssql/server:2022-latest AS builder
 
 # Accept build arguments
 ARG SA_PASSWORD
@@ -13,7 +14,7 @@ ENV SA_PASSWORD=$SA_PASSWORD
 ENV DATABASE_NAME=$DATABASE_NAME
 ENV MSSQL_PID=Express
 
-# Install necessary tools
+# Install necessary tools for BACPAC import
 USER root
 RUN apt-get update && apt-get install -y \
     curl \
@@ -28,23 +29,62 @@ RUN curl -L https://aka.ms/sqlpackage-linux -o sqlpackage.zip \
 
 # Create directories
 RUN mkdir -p /var/opt/mssql/backup \
-    && mkdir -p /var/opt/mssql/scripts/migrations \
+    && mkdir -p /var/opt/mssql/logs
+
+# Copy BACPAC file (only needed during build)
+COPY $BACPAC_FILE /var/opt/mssql/backup/database.bacpac
+
+# Copy import script
+COPY import-bacpac.sh /opt/mssql-tools/bin/
+RUN chmod +x /opt/mssql-tools/bin/import-bacpac.sh
+
+# Set permissions
+RUN chown -R mssql:root /var/opt/mssql/ \
+    && chown -R mssql:root /opt/mssql-tools/
+
+# Switch to mssql user and import BACPAC
+USER mssql
+
+# Start SQL Server and import BACPAC
+RUN /opt/mssql-tools/bin/import-bacpac.sh
+
+# Stage 2: Final runtime image (without BACPAC file)
+FROM mcr.microsoft.com/mssql/server:2022-latest AS final
+
+# Accept build arguments
+ARG SA_PASSWORD
+ARG DATABASE_NAME=ImportedDatabase
+ARG ACCEPT_EULA=Y
+
+# Set environment variables
+ENV ACCEPT_EULA=$ACCEPT_EULA
+ENV SA_PASSWORD=$SA_PASSWORD
+ENV DATABASE_NAME=$DATABASE_NAME
+ENV MSSQL_PID=Express
+
+# Install runtime dependencies
+USER root
+RUN apt-get update && apt-get install -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create directories for scripts and logs
+RUN mkdir -p /var/opt/mssql/scripts/migrations \
     && mkdir -p /var/opt/mssql/scripts/upgrades \
     && mkdir -p /var/opt/mssql/logs
 
-# Copy utility scripts
+# Copy runtime scripts
 COPY wait-for-sqlserver.sh /opt/mssql-tools/bin/
 COPY entrypoint.sh /opt/mssql-tools/bin/
 
 # Make scripts executable
 RUN chmod +x /opt/mssql-tools/bin/*.sh
 
-# Copy BACPAC file
-COPY $BACPAC_FILE /var/opt/mssql/backup/database.bacpac
-
-# Copy SQL scripts (these directories may be empty)
+# Copy SQL migration and upgrade scripts (these directories may be empty)
 COPY sql-scripts/migrations/ /var/opt/mssql/scripts/migrations/
 COPY sql-scripts/upgrades/ /var/opt/mssql/scripts/upgrades/
+
+# Copy database files from builder stage
+COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/
 
 # Set permissions
 RUN chown -R mssql:root /var/opt/mssql/ \

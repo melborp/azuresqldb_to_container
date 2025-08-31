@@ -2,6 +2,11 @@
 
 This document provides examples of how to use the BACPAC to Container toolkit in various scenarios.
 
+**Important**: The toolkit uses a **multi-stage Docker build** process where:
+1. **Build Stage 1**: BACPAC is imported into SQL Server during Docker build
+2. **Build Stage 2**: Database files are copied to final image (BACPAC is excluded)
+3. **Runtime**: Only migration and upgrade scripts are executed during container startup
+
 ## Basic Usage
 
 ### 1. Complete Process (Export → Build → Push)
@@ -23,7 +28,7 @@ This document provides examples of how to use the BACPAC to Container toolkit in
     -LogLevel "Info"
 ```
 
-### 2. Build from Existing BACPAC
+### 2. Build from Existing BACPAC (Optimized Image)
 
 ```powershell
 .\build.ps1 `
@@ -35,6 +40,7 @@ This document provides examples of how to use the BACPAC to Container toolkit in
     -MigrationScriptPaths @(".\migrations\*.sql") `
     -LogLevel "Debug"
 ```
+*Note: The final image will NOT contain the BACPAC file, significantly reducing image size.*
 
 ### 3. Export Only
 
@@ -178,7 +184,7 @@ jobs:
 ### Build Script
 
 ```powershell
-# Build from local BACPAC
+# Build from local BACPAC (BACPAC imported during build, excluded from final image)
 .\scripts\Build-SqlContainer.ps1 `
     -BacpacPath "C:\temp\mydatabase.bacpac" `
     -ImageName "my-app-db" `
@@ -188,13 +194,18 @@ jobs:
     -DatabaseName "MyAppDatabase" `
     -SqlServerPassword "MyStrong@Password123"
 
-# Build from URL
+# Build from URL (BACPAC downloaded and imported during build)
 .\scripts\Build-SqlContainer.ps1 `
     -BacpacPath "https://mystorageaccount.blob.core.windows.net/bacpacs/database.bacpac" `
     -ImageName "my-app-db" `
     -ImageTag "v1.0.0" `
     -NoCache
 ```
+
+**Key Points:**
+- BACPAC is imported during Docker build stage 1
+- Final image (stage 2) contains only the database files, not the BACPAC
+- Migration and upgrade scripts run at container startup, not during build
 
 ### Push Script
 
@@ -274,8 +285,11 @@ All scripts provide detailed error messages and appropriate exit codes for CI/CD
 
 1. **Use meaningful image tags**: Include version numbers or build IDs
 2. **Validate scripts**: Test migration scripts in development first
-3. **Use Azure AD authentication**: More secure than SQL authentication
-4. **Monitor script execution**: Check logs for any warnings or errors
+3. **Use Azure AD authentication**: More secure than SQL authentication for exports
+4. **Monitor script execution**: Check logs for any warnings or errors during startup
 5. **Version control**: Keep migration scripts in version control
 6. **Test containers**: Run validation tests after container build
 7. **Cleanup**: Use temporary directories that are automatically cleaned up
+8. **Optimize image size**: The multi-stage build automatically excludes BACPAC from final image
+9. **Fast migration scripts**: Keep startup scripts lightweight as they run during container startup
+10. **Idempotent scripts**: Ensure migration scripts can be run multiple times safely

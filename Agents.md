@@ -52,17 +52,4 @@ Containerized Database
 - **Least privilege**: Scripts request only necessary permissions
 - **Credential isolation**: External credential management (Azure Key Vault, CI/CD secrets)
 
-# Future Iterations
-## Planned Enhancements
-- **Multi-database support**: Process multiple databases in parallel
-- **Rollback capabilities**: Container versioning and rollback mechanisms
-- **Performance optimization**: Parallel script execution where safe
-- **Advanced validation**: Schema comparison and data integrity checks
-- **Monitoring integration**: Health checks and telemetry collection
-- **Template library**: Common migration pattern templates
 
-## Extensibility Points
-- **Custom script runners**: Support for different SQL execution engines
-- **Plugin architecture**: Custom validation and transformation steps
-- **Container customization**: Flexible base image and configuration options
-- **Integration adapters**: Specific CI/CD platform optimizations

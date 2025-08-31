@@ -5,9 +5,10 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
 ## 🚀 Features
 
 - **Azure SQL Database Export**: Export databases to BACPAC format with Azure Blob Storage integration
-- **Containerized Database Import**: Build SQL Server containers with automated BACPAC import
-- **Migration Script Execution**: Run custom migration and upgrade scripts during container build
-- **Fail-Fast Validation**: Container build fails if any SQL script fails
+- **Build-Time Database Import**: Import BACPAC during Docker build process for optimized final image
+- **Migration Script Execution**: Run custom migration and upgrade scripts during container startup
+- **Optimized Image Size**: Final container excludes BACPAC file, containing only the imported database
+- **Fail-Fast Validation**: Container build fails if BACPAC import fails; runtime fails if any script fails
 - **CI/CD Ready**: Parameter-driven scripts designed for pipeline integration
 - **Cross-Platform**: PowerShell Core compatible (Windows, Linux, macOS)
 - **Comprehensive Logging**: Structured logging with configurable levels
@@ -24,21 +25,27 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Azure SQL     │───▶│   Azure Blob     │───▶│  Docker Build   │
-│   Database      │    │   Storage        │    │   Container     │
+│   Azure SQL     │───▶│   Azure Blob     │───▶│ Docker Build    │
+│   Database      │    │   Storage        │    │ Stage 1: Import │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
                                                         │
-┌─────────────────┐    ┌──────────────────┐           │
-│  External SQL   │───▶│  Migration &     │◀──────────┘
-│    Scripts      │    │  Upgrade Scripts │
-└─────────────────┘    └──────────────────┘
-                                │
-                                ▼
-┌─────────────────┐    ┌──────────────────┐
-│   Azure ACR     │◀───│  Final Container │
-│                 │    │     Image        │
-└─────────────────┘    └──────────────────┘
+                                                        ▼
+┌─────────────────┐                           ┌─────────────────┐
+│  External SQL   │                           │ Docker Build    │
+│    Scripts      │────────────────────────▶ │ Stage 2: Final  │
+└─────────────────┘                           └─────────────────┘
+                                                        │
+                                                        ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Azure ACR     │◀───│  Runtime: Only   │◀───│  Final Image    │
+│                 │    │ Migration Scripts│    │ (No BACPAC)     │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
+
+**Key Process:**
+1. **Build Stage 1**: Import BACPAC into SQL Server during Docker build
+2. **Build Stage 2**: Copy database files to final image (excludes BACPAC)
+3. **Runtime**: Execute only migration/upgrade scripts on container startup
 
 ## 🛠️ Installation
 
@@ -111,7 +118,8 @@ bacpac_to_container/
 │       └── Docker-Helpers.ps1         # Docker management functions
 ├── docker/
 │   ├── Dockerfile                     # Multi-stage SQL Server container
-│   ├── entrypoint.sh                  # Container startup and setup script
+│   ├── import-bacpac.sh               # BACPAC import during build stage
+│   ├── entrypoint.sh                  # Container startup script (migration/upgrade only)
 │   └── wait-for-sqlserver.sh          # SQL Server readiness check
 ├── examples/
 │   ├── sample-migration.sql           # Example migration script
@@ -240,13 +248,20 @@ The toolkit is designed for seamless CI/CD integration:
 
 ## 🏗️ Migration Script Guidelines
 
-Migration and upgrade scripts should follow these guidelines:
+Migration and upgrade scripts run during **container startup** (not during build) and should follow these guidelines:
 
 1. **Idempotent**: Safe to run multiple times
 2. **Transactional**: Use transactions where appropriate
 3. **Validated**: Test thoroughly before use
-4. **Ordered**: Use naming conventions for execution order
+4. **Ordered**: Use naming conventions for execution order (scripts are executed alphabetically)
 5. **Logged**: Include PRINT statements for debugging
+6. **Fast Execution**: Keep scripts lightweight as they run during container startup
+
+### Script Execution Order
+
+1. **Build Time**: BACPAC import (automatic, no custom scripts)
+2. **Runtime**: Migration scripts (executed first during container startup)
+3. **Runtime**: Upgrade scripts (executed after migration scripts)
 
 ### Example Migration Script
 

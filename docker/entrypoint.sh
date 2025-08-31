@@ -1,20 +1,20 @@
 #!/bin/bash
 # entrypoint.sh
-# Main entrypoint script for SQL Server container with BACPAC import and script execution
+# Main entrypoint script for SQL Server container with migration/upgrade script execution
+# BACPAC import is handled during build stage
 
 set -e
 
 # Default values
 DATABASE_NAME=${DATABASE_NAME:-ImportedDatabase}
 SA_PASSWORD=${SA_PASSWORD:-YourStrong@Passw0rd123}
-BACPAC_FILE=${BACPAC_FILE:-/var/opt/mssql/backup/database.bacpac}
 MIGRATION_SCRIPTS_DIR="/var/opt/mssql/scripts/migrations"
 UPGRADE_SCRIPTS_DIR="/var/opt/mssql/scripts/upgrades"
 LOG_DIR="/var/opt/mssql/logs"
 
 # Logging function
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_DIR/container-setup.log"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] RUNTIME: $1" | tee -a "$LOG_DIR/container-runtime.log"
 }
 
 # Error handling function
@@ -65,62 +65,31 @@ execute_scripts_in_directory() {
     done
 }
 
-# Verify BACPAC file function
-verify_bacpac() {
-    if [ ! -f "$BACPAC_FILE" ]; then
-        handle_error "BACPAC file not found: $BACPAC_FILE"
-    fi
+# Verify database exists (imported during build)
+verify_database() {
+    log "Verifying imported database exists: $DATABASE_NAME"
     
-    local file_size=$(stat -c%s "$BACPAC_FILE")
-    local file_size_mb=$((file_size / 1024 / 1024))
-    
-    log "BACPAC file found: $BACPAC_FILE (${file_size_mb} MB)"
-    
-    if [ "$file_size" -lt 1024 ]; then
-        handle_error "BACPAC file appears to be too small: ${file_size} bytes"
-    fi
-}
-
-# Import BACPAC function
-import_bacpac() {
-    log "Starting BACPAC import: $DATABASE_NAME"
-    
-    local connection_string="Server=localhost;Database=master;User Id=sa;Password=$SA_PASSWORD;TrustServerCertificate=true;"
-    
-    # Import BACPAC using sqlpackage
-    if /opt/sqlpackage/sqlpackage /Action:Import \
-        /SourceFile:"$BACPAC_FILE" \
-        /TargetConnectionString:"$connection_string" \
-        /TargetDatabaseName:"$DATABASE_NAME" \
-        /DiagnosticsFile:"$LOG_DIR/sqlpackage-diagnostics.log" \
-        /OverwriteFiles:true &>> "$LOG_DIR/bacpac-import.log"; then
+    if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT name FROM sys.databases WHERE name = '$DATABASE_NAME'" -h -1 | grep -q "$DATABASE_NAME"; then
+        log "Database verification successful: $DATABASE_NAME"
         
-        log "BACPAC import completed successfully"
-        
-        # Verify database was created
-        if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT name FROM sys.databases WHERE name = '$DATABASE_NAME'" -h -1 | grep -q "$DATABASE_NAME"; then
-            log "Database verification successful: $DATABASE_NAME"
-        else
-            handle_error "Database verification failed: $DATABASE_NAME not found"
-        fi
+        # Get database info
+        local db_size=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -d "$DATABASE_NAME" -Q "SELECT CAST(SUM(size) * 8.0 / 1024 AS DECIMAL(10,2)) FROM sys.master_files WHERE database_id = DB_ID('$DATABASE_NAME')" -h -1 | tr -d ' ')
+        log "Database size: ${db_size} MB"
     else
-        handle_error "BACPAC import failed"
+        handle_error "Database not found: $DATABASE_NAME. BACPAC import may have failed during build."
     fi
 }
 
-# Database setup function
+# Database setup function (migration/upgrade scripts only)
 setup_database() {
-    log "Starting database setup process"
-    
-    # Verify BACPAC file
-    verify_bacpac
+    log "Starting database runtime setup process"
     
     # Wait for SQL Server to be ready
     log "Waiting for SQL Server to be ready..."
     /opt/mssql-tools/bin/wait-for-sqlserver.sh 60 localhost 1433 "$SA_PASSWORD" || handle_error "SQL Server failed to start"
     
-    # Import BACPAC
-    import_bacpac
+    # Verify imported database exists
+    verify_database
     
     # Execute migration scripts
     log "Executing migration scripts..."
@@ -130,14 +99,15 @@ setup_database() {
     log "Executing upgrade scripts..."
     execute_scripts_in_directory "$UPGRADE_SCRIPTS_DIR" "upgrade"
     
-    log "Database setup completed successfully"
+    log "Database runtime setup completed successfully"
 }
 
 # Main execution
 main() {
-    log "=== SQL Server Container Startup ==="
+    log "=== SQL Server Container Runtime Startup ==="
     log "Database Name: $DATABASE_NAME"
-    log "BACPAC File: $BACPAC_FILE"
+    log "Migration Scripts Dir: $MIGRATION_SCRIPTS_DIR"
+    log "Upgrade Scripts Dir: $UPGRADE_SCRIPTS_DIR"
     
     # Create log directory
     mkdir -p "$LOG_DIR"
@@ -150,11 +120,11 @@ main() {
     # Wait a moment for SQL Server to initialize
     sleep 10
     
-    # Setup database (this will exit container if any step fails)
+    # Setup database (migration/upgrade scripts only)
     setup_database
     
     # If we get here, everything succeeded
-    log "=== Container setup completed successfully ==="
+    log "=== Container runtime setup completed successfully ==="
     log "SQL Server is ready with database: $DATABASE_NAME"
     
     # Keep SQL Server running in foreground

@@ -135,10 +135,10 @@ function New-BuildContext {
     New-Item -ItemType Directory -Force -Path $migrationDir | Out-Null
     New-Item -ItemType Directory -Force -Path $upgradeDir | Out-Null
     
-    # Copy BACPAC file
+    # Copy BACPAC file (will be imported during build, not included in final image)
     $buildBacpacPath = Join-Path $TempDir "database.bacpac"
     Copy-Item $BacpacPath $buildBacpacPath -Force
-    Write-InfoLog "Copied BACPAC file to build context"
+    Write-InfoLog "Copied BACPAC file to build context (will be imported during build)"
     
     # Copy migration scripts
     if ($MigrationScripts.Count -gt 0) {
@@ -181,6 +181,7 @@ function main {
             MigrationScripts = $MigrationScriptPaths.Count
             UpgradeScripts = $UpgradeScriptPaths.Count
             DatabaseName = $DatabaseName
+            BuildProcess = "Multi-stage with BACPAC import during build"
         }
         
         # Validate prerequisites
@@ -212,7 +213,7 @@ function main {
             
             # Validate BACPAC file
             $bacpacSize = (Get-Item $localBacpacPath).Length
-            Write-InfoLog "BACPAC file size: $([math]::Round($bacpacSize / 1MB, 2)) MB"
+            Write-InfoLog "BACPAC file size: $([math]::Round($bacpacSize / 1MB, 2)) MB (will be imported during build)"
             
             # Create build context
             $buildContext = New-BuildContext -TempDir $TempDirectory -BacpacPath $localBacpacPath -MigrationScripts $MigrationScriptPaths -UpgradeScripts $UpgradeScriptPaths
@@ -229,7 +230,10 @@ function main {
                 $dockerBuildArgs[$key] = $BuildArgs[$key]
             }
             
-            # Build Docker image
+            Write-InfoLog "Starting multi-stage Docker build with BACPAC import..."
+            Write-InfoLog "Note: BACPAC will be imported during build and NOT included in final image"
+            
+            # Build Docker image with multi-stage process
             $dockerfilePath = Join-Path $buildContext "Dockerfile"
             $fullImageName = Build-DockerImage -ImageName $ImageName -ImageTag $ImageTag -DockerfilePath $dockerfilePath -BuildContext $buildContext -BuildArgs $dockerBuildArgs -NoCache:$NoCache
             
@@ -239,10 +243,19 @@ function main {
                 Write-CriticalLog "Built image verification failed"
             }
             
+            # Verify final image size (should be smaller without BACPAC)
+            $imageInspect = docker inspect $fullImageName --format "{{.Size}}" 2>$null
+            if ($imageInspect) {
+                $imageSizeMB = [math]::Round([long]$imageInspect / 1MB, 2)
+                Write-InfoLog "Final image size: $imageSizeMB MB (excludes BACPAC file)"
+            }
+            
             Write-InfoLog "=== SQL Container Build Completed Successfully ===" @{
                 ImageName = $fullImageName
                 BuildContext = $buildContext
                 TotalScripts = ($MigrationScriptPaths.Count + $UpgradeScriptPaths.Count)
+                BacpacImported = "During build stage"
+                FinalImageSizeMB = if ($imageInspect) { $imageSizeMB } else { "Unknown" }
             }
             
             # Output key information for CI/CD systems
@@ -253,6 +266,11 @@ function main {
             Write-Host "DATABASE_NAME=$DatabaseName"
             Write-Host "MIGRATION_SCRIPTS_COUNT=$($MigrationScriptPaths.Count)"
             Write-Host "UPGRADE_SCRIPTS_COUNT=$($UpgradeScriptPaths.Count)"
+            Write-Host "BACPAC_IMPORTED_DURING=BUILD_STAGE"
+            Write-Host "BACPAC_IN_FINAL_IMAGE=FALSE"
+            if ($imageInspect) {
+                Write-Host "FINAL_IMAGE_SIZE_MB=$imageSizeMB"
+            }
             
             exit 0
         }
