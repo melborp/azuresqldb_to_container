@@ -136,10 +136,76 @@ function Get-BacpacFile {
     }
 }
 
+function Resolve-ScriptPaths {
+    <#
+    .SYNOPSIS
+    Resolves wildcard patterns in script paths to actual file paths
+    #>
+    param(
+        [string[]]$ScriptPaths
+    )
+    
+    $resolvedPaths = @()
+    
+    foreach ($path in $ScriptPaths) {
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            continue
+        }
+        
+        Write-InfoLog "Processing script path: '$path'"
+        
+        # Check if path contains wildcards
+        if ($path -match '[\*\?]') {
+            Write-InfoLog "Resolving wildcard pattern: $path"
+            
+            # Resolve wildcards using Get-ChildItem
+            try {
+                $matchedFiles = Get-ChildItem -Path $path -File | Where-Object { $_.Extension -eq '.sql' }
+                Write-InfoLog "Found $($matchedFiles.Count) matching files"
+                
+                foreach ($file in $matchedFiles) {
+                    $fullPath = $file.FullName
+                    $resolvedPaths += $fullPath
+                    Write-InfoLog "Resolved to: $fullPath"
+                }
+            }
+            catch {
+                Write-ErrorLog "Failed to resolve wildcard pattern '$path': $($_.Exception.Message)"
+            }
+        }
+        else {
+            # Direct path, just add it
+            if (Test-Path $path) {
+                $fullPath = (Resolve-Path $path).Path
+                $resolvedPaths += $fullPath
+                Write-InfoLog "Direct path resolved: $fullPath"
+            }
+            else {
+                Write-ErrorLog "Script file not found: $path"
+            }
+        }
+    }
+    
+    Write-InfoLog "Final resolved paths count: $($resolvedPaths.Count)"
+    for ($i = 0; $i -lt $resolvedPaths.Count; $i++) {
+        Write-InfoLog "  [$i]: '$($resolvedPaths[$i])'"
+    }
+    
+    # forces the result to be array even when 1 entry is returned.
+    return ,$resolvedPaths
+}
+
 function New-BuildContext {
     param([string]$TempDir, [string]$BacpacPath, [string[]]$MigrationScripts, [string[]]$UpgradeScripts)
     
     Write-InfoLog "Creating build context in: $TempDir"
+    
+    # Resolve wildcard patterns in script paths
+    $resolvedMigrationScripts = Resolve-ScriptPaths -ScriptPaths $MigrationScripts
+    $resolvedUpgradeScripts = Resolve-ScriptPaths -ScriptPaths $UpgradeScripts
+    
+    Write-InfoLog "Resolved $($resolvedMigrationScripts.Count) migration script(s) from $($MigrationScripts.Count) pattern(s)"
+    Write-InfoLog "Resolved $($resolvedUpgradeScripts.Count) upgrade script(s) from $($UpgradeScripts.Count) pattern(s)"
     
     # Create directory structure
     $sqlScriptsDir = Join-Path $TempDir "sql-scripts"
@@ -156,10 +222,10 @@ function New-BuildContext {
     Write-InfoLog "Copied BACPAC file to build context (will be imported during build)"
     
     # Copy migration scripts
-    if ($MigrationScripts.Count -gt 0) {
-        Write-InfoLog "Copying $($MigrationScripts.Count) migration script(s)..."
-        for ($i = 0; $i -lt $MigrationScripts.Count; $i++) {
-            $script = $MigrationScripts[$i]
+    if ($resolvedMigrationScripts.Count -gt 0) {
+        Write-InfoLog "Copying $($resolvedMigrationScripts.Count) migration script(s)..."
+        for ($i = 0; $i -lt $resolvedMigrationScripts.Count; $i++) {
+            $script = $resolvedMigrationScripts[$i]            
             $fileName = "{0:D3}_{1}" -f ($i + 1), (Split-Path $script -Leaf)
             $destPath = Join-Path $migrationDir $fileName
             Copy-Item $script $destPath -Force
@@ -168,10 +234,10 @@ function New-BuildContext {
     }
     
     # Copy upgrade scripts
-    if ($UpgradeScripts.Count -gt 0) {
-        Write-InfoLog "Copying $($UpgradeScripts.Count) upgrade script(s)..."
-        for ($i = 0; $i -lt $UpgradeScripts.Count; $i++) {
-            $script = $UpgradeScripts[$i]
+    if ($resolvedUpgradeScripts.Count -gt 0) {
+        Write-InfoLog "Copying $($resolvedUpgradeScripts.Count) upgrade script(s)..."
+        for ($i = 0; $i -lt $resolvedUpgradeScripts.Count; $i++) {
+            $script = $resolvedUpgradeScripts[$i]
             $fileName = "{0:D3}_{1}" -f ($i + 1), (Split-Path $script -Leaf)
             $destPath = Join-Path $upgradeDir $fileName
             Copy-Item $script $destPath -Force
@@ -197,6 +263,7 @@ function main {
             UpgradeScripts = $UpgradeScriptPaths.Count
             DatabaseName = $DatabaseName
             BuildProcess = "Multi-stage with BACPAC import during build"
+            LogLevel = $LogLevel
         }
         
         # Validate prerequisites
