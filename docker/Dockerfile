@@ -86,7 +86,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
-    
+
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
     && curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \
@@ -95,8 +95,7 @@ RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories for scripts and logs
-RUN mkdir -p /var/opt/mssql/scripts/migrations \
-    && mkdir -p /var/opt/mssql/scripts/upgrades \
+RUN mkdir -p /var/opt/mssql/scripts \
     && mkdir -p /var/opt/mssql/logs
 
 # Copy runtime scripts
@@ -105,9 +104,8 @@ COPY entrypoint.sh /opt/mssql-tools/bin/
 # Make scripts executable
 RUN chmod +x /opt/mssql-tools/bin/*.sh
 
-# Copy SQL migration and upgrade scripts (these directories may be empty)
-COPY sql-scripts/migrations/ /var/opt/mssql/scripts/migrations/
-COPY sql-scripts/upgrades/ /var/opt/mssql/scripts/upgrades/
+# Copy SQL migration scripts (this directory may be empty)
+COPY sql-scripts/migrations/ /var/opt/mssql/scripts/
 
 # Copy database files from builder stage (if they exist)
 COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/

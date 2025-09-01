@@ -15,9 +15,6 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Array of migration script file paths")]
     [string[]]$MigrationScriptPaths = @(),
     
-    [Parameter(Mandatory = $false, HelpMessage = "Array of upgrade script file paths")]
-    [string[]]$UpgradeScriptPaths = @(),
-    
     [Parameter(Mandatory = $false, HelpMessage = "SQL Server SA password")]
     [string]$SqlServerPassword = "YourStrong@Passw0rd123",
     
@@ -196,25 +193,21 @@ function Resolve-ScriptPaths {
 }
 
 function New-BuildContext {
-    param([string]$TempDir, [string]$BacpacPath, [string[]]$MigrationScripts, [string[]]$UpgradeScripts)
+    param([string]$TempDir, [string]$BacpacPath, [string[]]$MigrationScripts)
     
     Write-InfoLog "Creating build context in: $TempDir"
     
     # Resolve wildcard patterns in script paths
     $resolvedMigrationScripts = Resolve-ScriptPaths -ScriptPaths $MigrationScripts
-    $resolvedUpgradeScripts = Resolve-ScriptPaths -ScriptPaths $UpgradeScripts
     
     Write-InfoLog "Resolved $($resolvedMigrationScripts.Count) migration script(s) from $($MigrationScripts.Count) pattern(s)"
-    Write-InfoLog "Resolved $($resolvedUpgradeScripts.Count) upgrade script(s) from $($UpgradeScripts.Count) pattern(s)"
     
     # Create directory structure
     $sqlScriptsDir = Join-Path $TempDir "sql-scripts"
     $migrationDir = Join-Path $sqlScriptsDir "migrations"
-    $upgradeDir = Join-Path $sqlScriptsDir "upgrades"
     
     New-Item -ItemType Directory -Force -Path $sqlScriptsDir | Out-Null
     New-Item -ItemType Directory -Force -Path $migrationDir | Out-Null
-    New-Item -ItemType Directory -Force -Path $upgradeDir | Out-Null
     
     # Copy BACPAC file (will be imported during build, not included in final image)
     $buildBacpacPath = Join-Path $TempDir "database.bacpac"
@@ -233,18 +226,6 @@ function New-BuildContext {
         }
     }
     
-    # Copy upgrade scripts
-    if ($resolvedUpgradeScripts.Count -gt 0) {
-        Write-InfoLog "Copying $($resolvedUpgradeScripts.Count) upgrade script(s)..."
-        for ($i = 0; $i -lt $resolvedUpgradeScripts.Count; $i++) {
-            $script = $resolvedUpgradeScripts[$i]
-            $fileName = "{0:D3}_{1}" -f ($i + 1), (Split-Path $script -Leaf)
-            $destPath = Join-Path $upgradeDir $fileName
-            Copy-Item $script $destPath -Force
-            Write-InfoLog "Copied upgrade script: $fileName"
-        }
-    }
-    
     # Copy Docker files
     $dockerDir = Join-Path $scriptDir "..\docker"
     Copy-Item (Join-Path $dockerDir "*") $TempDir -Force
@@ -260,7 +241,6 @@ function main {
             ImageTag = $ImageTag
             BacpacPath = $BacpacPath
             MigrationScripts = $MigrationScriptPaths.Count
-            UpgradeScripts = $UpgradeScriptPaths.Count
             DatabaseName = $DatabaseName
             BuildProcess = "Multi-stage with BACPAC import during build"
             LogLevel = $LogLevel
@@ -279,7 +259,6 @@ function main {
         
         # Validate script files
         Test-ScriptFiles -ScriptPaths $MigrationScriptPaths -ScriptType "Migration"
-        Test-ScriptFiles -ScriptPaths $UpgradeScriptPaths -ScriptType "Upgrade"
         
         # Setup temporary directory
         if (-not $TempDirectory) {
@@ -302,7 +281,7 @@ function main {
             Write-InfoLog "BACPAC file size: $([math]::Round($bacpacSize / 1MB, 2)) MB (will be imported during build)"
             
             # Create build context
-            $buildContext = New-BuildContext -TempDir $TempDirectory -BacpacPath $localBacpacPath -MigrationScripts $MigrationScriptPaths -UpgradeScripts $UpgradeScriptPaths
+            $buildContext = New-BuildContext -TempDir $TempDirectory -BacpacPath $localBacpacPath -MigrationScripts $MigrationScriptPaths
             
             # Prepare build arguments
             $dockerBuildArgs = @{
@@ -339,7 +318,7 @@ function main {
             Write-InfoLog "=== SQL Container Build Completed Successfully ===" @{
                 ImageName = $fullImageName
                 BuildContext = $buildContext
-                TotalScripts = ($MigrationScriptPaths.Count + $UpgradeScriptPaths.Count)
+                TotalScripts = $MigrationScriptPaths.Count
                 BacpacImported = "During build stage"
                 FinalImageSizeMB = if ($imageInspect) { $imageSizeMB } else { "Unknown" }
             }
@@ -351,7 +330,6 @@ function main {
             Write-Host "IMAGE_TAG=$ImageTag"
             Write-Host "DATABASE_NAME=$DatabaseName"
             Write-Host "MIGRATION_SCRIPTS_COUNT=$($MigrationScriptPaths.Count)"
-            Write-Host "UPGRADE_SCRIPTS_COUNT=$($UpgradeScriptPaths.Count)"
             Write-Host "BACPAC_IMPORTED_DURING=BUILD_STAGE"
             Write-Host "BACPAC_IN_FINAL_IMAGE=FALSE"
             if ($imageInspect) {
