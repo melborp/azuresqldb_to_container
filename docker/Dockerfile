@@ -20,7 +20,19 @@ USER root
 RUN apt-get update && apt-get install -y \
     curl \
     unzip \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Microsoft SQL Server command-line tools
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y mssql-tools18 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add mssql-tools to PATH
+ENV PATH="$PATH:/opt/mssql-tools18/bin:/opt/mssql-tools/bin"
 
 # Install sqlpackage for BACPAC import
 RUN curl -L https://aka.ms/sqlpackage-linux -o sqlpackage.zip \
@@ -85,7 +97,7 @@ COPY sql-scripts/migrations/ /var/opt/mssql/scripts/migrations/
 COPY sql-scripts/upgrades/ /var/opt/mssql/scripts/upgrades/
 
 # Copy database files from builder stage (if they exist)
-COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/ || true
+COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/
 
 # Set permissions
 RUN chown -R mssql:root /var/opt/mssql/ \

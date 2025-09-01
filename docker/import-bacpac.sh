@@ -55,7 +55,7 @@ import_bacpac() {
         log "BACPAC import completed successfully during build"
         
         # Verify database was created
-        if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT name FROM sys.databases WHERE name = '$DATABASE_NAME'" -h -1 | grep -q "$DATABASE_NAME"; then
+        if /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT name FROM sys.databases WHERE name = '$DATABASE_NAME'" -h -1 -C | grep -q "$DATABASE_NAME"; then
             log "Database verification successful during build: $DATABASE_NAME"
         else
             handle_error "Database verification failed during build: $DATABASE_NAME not found"
@@ -158,7 +158,7 @@ main() {
     
     # Gracefully shutdown SQL Server
     log "Shutting down SQL Server after import..."
-    /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SHUTDOWN WITH NOWAIT" || true
+    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SHUTDOWN WITH NOWAIT" -C || true
     sleep 5
     kill $SQLSERVER_PID 2>/dev/null || true
     wait $SQLSERVER_PID 2>/dev/null || true
