@@ -121,12 +121,9 @@ main() {
     log "Waiting for SQL Server to be ready during build..."
     local timeout=120  # Increased timeout to 2 minutes
     for i in $(seq 1 $timeout); do
-        # Try multiple connection methods
-        if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" -t 10 &>/dev/null; then
+        # Use sqlcmd18 (included in base image)
+        if /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" -C -t 10 &>/dev/null; then
             log "SQL Server is ready for import!"
-            break
-        elif /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" -C -t 10 &>/dev/null; then
-            log "SQL Server is ready for import (using sqlcmd18)!"
             break
         fi
         

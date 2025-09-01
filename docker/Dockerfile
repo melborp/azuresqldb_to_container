@@ -39,18 +39,18 @@ RUN mkdir -p /var/opt/mssql/backup \
 COPY database.bacpac /var/opt/mssql/backup/database.bacpac
 
 # Copy import script
-COPY import-bacpac.sh /opt/mssql-tools/bin/
-RUN chmod +x /opt/mssql-tools/bin/import-bacpac.sh
+COPY import-bacpac.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/import-bacpac.sh
 
 # Set permissions
 RUN chown -R mssql:root /var/opt/mssql/ \
-    && chown -R mssql:root /opt/mssql-tools/
+    && chown -R mssql:root /usr/local/bin/import-bacpac.sh
 
 # Import BACPAC as root (SQL Server needs root privileges in Docker)
 USER root
 
 # Start SQL Server and import BACPAC
-RUN /opt/mssql-tools/bin/import-bacpac.sh
+RUN /usr/local/bin/import-bacpac.sh
 
 # Stage 2: Final runtime image (without BACPAC file)
 FROM mcr.microsoft.com/mssql/server:2022-latest AS final
@@ -79,10 +79,10 @@ RUN mkdir -p /opt/migration-scripts \
     && mkdir -p /var/opt/mssql/logs
 
 # Copy runtime scripts
-COPY entrypoint.sh /opt/mssql-tools/bin/
+COPY entrypoint.sh /usr/local/bin/
 
 # Make scripts executable
-RUN chmod +x /opt/mssql-tools/bin/*.sh
+RUN chmod +x /usr/local/bin/*.sh
 
 # Copy SQL migration scripts (this directory may be empty)
 COPY sql-scripts/migrations/ /opt/migration-scripts/
@@ -92,12 +92,12 @@ COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/
 
 # Set permissions
 RUN chown -R mssql:root /var/opt/mssql/ \
-    && chown -R mssql:root /opt/mssql-tools/ \
-    && chown -R mssql:root /opt/migration-scripts/
+    && chown -R mssql:root /opt/migration-scripts/ \
+    && chown -R mssql:root /usr/local/bin/entrypoint.sh
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-    CMD /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" || exit 1
+    CMD /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" || exit 1
 
 # Switch back to mssql user
 USER mssql
@@ -106,4 +106,4 @@ USER mssql
 EXPOSE 1433
 
 # Set entrypoint
-ENTRYPOINT ["/opt/mssql-tools/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
