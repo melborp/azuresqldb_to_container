@@ -80,13 +80,26 @@ USER root
 RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Microsoft SQL Server command-line tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    unzip \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+    
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y mssql-tools18 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create directories for scripts and logs
 RUN mkdir -p /var/opt/mssql/scripts/migrations \
     && mkdir -p /var/opt/mssql/scripts/upgrades \
     && mkdir -p /var/opt/mssql/logs
 
 # Copy runtime scripts
-COPY wait-for-sqlserver.sh /opt/mssql-tools/bin/
 COPY entrypoint.sh /opt/mssql-tools/bin/
 
 # Make scripts executable
