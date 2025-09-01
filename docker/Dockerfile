@@ -95,7 +95,7 @@ RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories for scripts and logs
-RUN mkdir -p /var/opt/mssql/scripts \
+RUN mkdir -p /opt/migration-scripts \
     && mkdir -p /var/opt/mssql/logs
 
 # Copy runtime scripts
@@ -105,14 +105,15 @@ COPY entrypoint.sh /opt/mssql-tools/bin/
 RUN chmod +x /opt/mssql-tools/bin/*.sh
 
 # Copy SQL migration scripts (this directory may be empty)
-COPY sql-scripts/migrations/ /var/opt/mssql/scripts/
+COPY sql-scripts/migrations/ /opt/migration-scripts/
 
 # Copy database files from builder stage (if they exist)
 COPY --from=builder /var/opt/mssql/data/ /var/opt/mssql/data/
 
 # Set permissions
 RUN chown -R mssql:root /var/opt/mssql/ \
-    && chown -R mssql:root /opt/mssql-tools/
+    && chown -R mssql:root /opt/mssql-tools/ \
+    && chown -R mssql:root /opt/migration-scripts/
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \

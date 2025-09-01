@@ -9,7 +9,7 @@ set -e
 # Default values
 DATABASE_NAME=${DATABASE_NAME:-ImportedDatabase}
 SA_PASSWORD=${SA_PASSWORD:-YourStrong@Passw0rd123}
-MIGRATION_SCRIPTS_DIR="/var/opt/mssql/scripts"
+MIGRATION_SCRIPTS_DIR="/opt/migration-scripts"
 
 echo "[$(date)] Starting SQL Server for migration setup..."
 
