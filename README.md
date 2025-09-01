@@ -6,13 +6,14 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
 
 - **Azure SQL Database Export**: Export databases to BACPAC format with Azure Blob Storage integration
 - **Build-Time Database Import**: Import BACPAC during Docker build process for optimized final image
-- **Migration Script Execution**: Run custom migration and upgrade scripts during container startup
+- **Migration Script Execution**: Run custom migration scripts during container startup
 - **Optimized Image Size**: Final container excludes BACPAC file, containing only the imported database
 - **Fail-Fast Validation**: Container build fails if BACPAC import fails; runtime fails if any script fails
 - **CI/CD Ready**: Parameter-driven scripts designed for pipeline integration
 - **Cross-Platform**: PowerShell Core compatible (Windows, Linux, macOS)
 - **Comprehensive Logging**: Structured logging with configurable levels
 - **Azure Container Registry**: Automated image tagging and publishing
+- **Simplified Architecture**: Single migration script directory for easier management
 
 ## 📋 Prerequisites
 
@@ -32,7 +33,7 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
                                                         │
                                                         ▼
 ┌─────────────────┐                           ┌─────────────────┐
-│  External SQL   │                           │ Docker Build    │
+│  Migration SQL  │                           │ Docker Build    │
 │    Scripts      │────────────────────────▶ │ Stage 2: Final  │
 └─────────────────┘                           └─────────────────┘
                                                         │
@@ -46,7 +47,42 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
 **Key Process:**
 1. **Build Stage 1**: Import BACPAC into SQL Server during Docker build
 2. **Build Stage 2**: Copy database files to final image (excludes BACPAC)
-3. **Runtime**: Execute only migration/upgrade scripts on container startup
+3. **Runtime**: Execute migration scripts on container startup
+
+## 🔐 Required Permissions
+
+### Azure SQL Database Permissions
+
+To export a database, your Azure AD account needs these database-level permissions:
+
+```sql
+-- Replace 'your-email@domain.com' with your actual Azure AD email
+CREATE USER [your-email@domain.com] FROM EXTERNAL PROVIDER;
+ALTER ROLE db_datareader ADD MEMBER [your-email@domain.com];
+ALTER ROLE db_datawriter ADD MEMBER [your-email@domain.com];
+ALTER ROLE db_owner ADD MEMBER [your-email@domain.com]; -- For export operations
+```
+
+**Note**: These permissions must be granted by a database administrator or someone with `db_owner` role.
+
+For detailed permission setup instructions, see [Required Permissions Guide](docs/Required-Permissions.md).
+
+### Azure Blob Storage Permissions
+
+Your Azure AD account needs these storage permissions:
+
+- **Storage Blob Data Contributor** role on the storage account or container
+- Or the following RBAC permissions:
+  - `Microsoft.Storage/storageAccounts/blobServices/containers/read`
+  - `Microsoft.Storage/storageAccounts/blobServices/containers/write`
+  - `Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action`
+
+### Azure Container Registry Permissions
+
+For pushing images to ACR:
+
+- **AcrPush** role on the container registry
+- Or **Contributor** role if you need to create repositories
 
 ## 🛠️ Installation
 
@@ -97,8 +133,7 @@ A comprehensive PowerShell-based automation toolkit for exporting Azure SQL Data
     -ImageName "my-app-db" `
     -ImageTag "v1.0.0" `
     -RegistryName "myregistry" `
-    -MigrationScriptPaths @("path\to\migration1.sql", "path\to\migration2.sql") `
-    -UpgradeScriptPaths @("path\to\upgrade.sql")
+    -MigrationScriptPaths @("path\to\migration1.sql", "path\to\migration2.sql")
 ```
 
 ### Build from Existing BACPAC
@@ -128,12 +163,13 @@ bacpac_to_container/
 ├── docker/
 │   ├── Dockerfile                     # Multi-stage SQL Server container
 │   ├── import-bacpac.sh               # BACPAC import during build stage
-│   ├── entrypoint.sh                  # Container startup script (migration/upgrade only)
-│   └── wait-for-sqlserver.sh          # SQL Server readiness check
+│   └── entrypoint.sh                  # Container startup script (migration only)
 ├── examples/
 │   ├── sample-migration.sql           # Example migration script
 │   ├── usage-examples.md             # Comprehensive usage examples
 │   └── sample-ci-pipeline.yml        # CI/CD pipeline examples
+├── docs/
+│   └── Required-Permissions.md       # Detailed permissions setup guide
 ├── build.ps1                         # Main orchestrator script
 ├── Agents.md                         # Project requirements and design
 ├── README.md                         # This file
@@ -162,8 +198,7 @@ bacpac_to_container/
     -BacpacPath "path\to\database.bacpac" `
     -ImageName "my-app-db" `
     -ImageTag "v1.0.0" `
-    -MigrationScriptPaths @("script1.sql", "script2.sql") `
-    -UpgradeScriptPaths @("upgrade.sql")
+    -MigrationScriptPaths @("script1.sql", "script2.sql")
 ```
 
 ### 3. Push to Azure Container Registry
@@ -200,7 +235,6 @@ The toolkit is designed for seamless CI/CD integration:
       -ImageTag $(Build.BuildNumber)
       -RegistryName $(REGISTRY_NAME)
       -MigrationScriptPaths $(MIGRATION_SCRIPTS)
-      -UpgradeScriptPaths $(UPGRADE_SCRIPTS)
 ```
 
 ### GitHub Actions
@@ -239,7 +273,6 @@ The toolkit is designed for seamless CI/CD integration:
 | `ImageName` | **Yes** | Docker image name |
 | `ImageTag` | **Yes** | Docker image tag |
 | `MigrationScriptPaths` | No | Array of migration script paths |
-| `UpgradeScriptPaths` | No | Array of upgrade script paths |
 | `RegistryName` | No* | Azure Container Registry name |
 | `SkipExport` | No | Skip database export |
 | `SkipBuild` | No | Skip container build |
@@ -257,7 +290,7 @@ The toolkit is designed for seamless CI/CD integration:
 
 ## 🏗️ Migration Script Guidelines
 
-Migration and upgrade scripts run during **container startup** (not during build) and should follow these guidelines:
+Migration scripts run during **container startup** (not during build) and should follow these guidelines:
 
 1. **Idempotent**: Safe to run multiple times
 2. **Transactional**: Use transactions where appropriate
@@ -269,8 +302,30 @@ Migration and upgrade scripts run during **container startup** (not during build
 ### Script Execution Order
 
 1. **Build Time**: BACPAC import (automatic, no custom scripts)
-2. **Runtime**: Migration scripts (executed first during container startup)
-3. **Runtime**: Upgrade scripts (executed after migration scripts)
+2. **Runtime**: Migration scripts (executed during container startup)
+
+### Script Location
+
+Migration scripts are copied to `/opt/migration-scripts/` in the container and executed in alphabetical order.
+
+### Running the Container
+
+After building your container image, you can run it locally for testing:
+
+```bash
+# Run the container with port mapping
+docker run -d -p 1433:1433 \
+  -e SA_PASSWORD="YourStrong@Passw0rd123" \
+  --name my-sql-container \
+  my-app-db:v1.0.0
+```
+
+**Connection Details:**
+- **Server**: `localhost,1433`
+- **Authentication**: SQL Login
+- **User**: `sa`
+- **Password**: `YourStrong@Passw0rd123` (or your custom password)
+- **Database**: `ImportedDatabase` (or your custom database name)
 
 ### Example Migration Script
 
@@ -313,9 +368,9 @@ END
    ```
 
 4. **Missing Azure permissions**
-   - SQL Database Contributor (for export)
-   - Storage Blob Data Contributor (for BACPAC storage)
-   - AcrPush (for container registry)
+   - SQL Database: `db_owner` role (for export)
+   - Storage Account: `Storage Blob Data Contributor` role
+   - Container Registry: `AcrPush` role
 
 ### Logging
 

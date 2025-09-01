@@ -24,7 +24,6 @@ This document provides examples of how to use the BACPAC to Container toolkit in
     -ImageTag "v1.0.0" `
     -RegistryName "myregistry" `
     -MigrationScriptPaths @("C:\scripts\001-add-tables.sql", "C:\scripts\002-add-indexes.sql") `
-    -UpgradeScriptPaths @("C:\scripts\upgrade-to-v2.sql") `
     -LogLevel "Info"
 ```
 
@@ -159,7 +158,6 @@ jobs:
           -ImageTag "${{ github.run_number }}" `
           -RegistryName "${{ env.REGISTRY_NAME }}" `
           -MigrationScriptPaths @("${{ secrets.MIGRATION_SCRIPTS }}".Split(',')) `
-          -UpgradeScriptPaths @("${{ secrets.UPGRADE_SCRIPTS }}".Split(',')) `
           -LogLevel "Info"
 ```
 
@@ -201,7 +199,6 @@ jobs:
     -ImageName "my-app-db" `
     -ImageTag "v1.0.0" `
     -MigrationScriptPaths @("C:\scripts\migration1.sql", "C:\scripts\migration2.sql") `
-    -UpgradeScriptPaths @("C:\scripts\upgrade.sql") `
     -DatabaseName "MyAppDatabase" `
     -SqlServerPassword "MyStrong@Password123"
 
@@ -216,7 +213,7 @@ jobs:
 **Key Points:**
 - BACPAC is imported during Docker build stage 1
 - Final image (stage 2) contains only the database files, not the BACPAC
-- Migration and upgrade scripts run at container startup, not during build
+- Migration scripts run at container startup, not during build
 
 ### Push Script
 
@@ -357,7 +354,7 @@ docker run -d -p 1433:1433 \
 
 **Note**: The container will:
 1. Start SQL Server
-2. Execute any migration scripts from `/var/opt/mssql/scripts/`
+2. Execute any migration scripts from `/opt/migration-scripts/`
 3. Keep SQL Server running and ready for connections
 
 ## Error Handling
