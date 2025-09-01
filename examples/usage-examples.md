@@ -276,6 +276,90 @@ $buildArgs = @{
     -AdditionalTags @("latest", "stable")
 ```
 
+## Running the Container Locally
+
+After building your container image, you can run it locally for testing and development.
+
+### Basic Container Run
+
+```bash
+# Run the container with port mapping
+docker run -d -p 1433:1433 \
+  -e SA_PASSWORD="YourStrong@Passw0rd123" \
+  --name my-sql-container \
+  my-app-db:v1.0.0
+```
+
+```powershell
+# PowerShell equivalent
+docker run -d -p 1433:1433 `
+  -e SA_PASSWORD="YourStrong@Passw0rd123" `
+  --name my-sql-container `
+  my-app-db:v1.0.0
+```
+
+### Connecting to the Container
+
+Once the container is running, you can connect using any SQL Server client:
+
+```bash
+# Using sqlcmd (if mssql-tools is installed locally)
+sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd123" -d ImportedDatabase
+
+# Using Azure Data Studio connection string
+Server: localhost,1433
+Authentication: SQL Login
+User: sa
+Password: YourStrong@Passw0rd123
+Database: ImportedDatabase
+```
+
+### Container Management
+
+```bash
+# Check container status
+docker ps
+
+# View container logs
+docker logs my-sql-container
+
+# Stop the container
+docker stop my-sql-container
+
+# Remove the container
+docker rm my-sql-container
+
+# Connect to running container for debugging
+docker exec -it my-sql-container /bin/bash
+```
+
+### Testing with Custom Environment Variables
+
+```bash
+# Run with custom database name and password
+docker run -d -p 1433:1433 \
+  -e SA_PASSWORD="MyCustomPassword123!" \
+  -e DATABASE_NAME="MyCustomDatabase" \
+  --name test-sql-custom \
+  my-app-db:v1.0.0
+```
+
+### Volume Mounting for Persistent Data
+
+```bash
+# Mount a volume for persistent database storage
+docker run -d -p 1433:1433 \
+  -e SA_PASSWORD="YourStrong@Passw0rd123" \
+  -v sql_data:/var/opt/mssql \
+  --name persistent-sql \
+  my-app-db:v1.0.0
+```
+
+**Note**: The container will:
+1. Start SQL Server
+2. Execute any migration scripts from `/var/opt/mssql/scripts/`
+3. Keep SQL Server running and ready for connections
+
 ## Error Handling
 
 All scripts provide detailed error messages and appropriate exit codes for CI/CD integration:
