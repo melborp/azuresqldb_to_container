@@ -12,6 +12,7 @@ ARG ACCEPT_EULA=Y
 ENV ACCEPT_EULA=$ACCEPT_EULA
 ENV SA_PASSWORD=$SA_PASSWORD
 ENV DATABASE_NAME=$DATABASE_NAME
+ENV BACPAC_FILE=/var/opt/mssql/backup/database.bacpac
 ENV MSSQL_PID=Express
 
 # Install necessary tools for BACPAC import
@@ -32,7 +33,7 @@ RUN mkdir -p /var/opt/mssql/backup \
     && mkdir -p /var/opt/mssql/logs
 
 # Copy BACPAC file (only needed during build)
-COPY $BACPAC_FILE /var/opt/mssql/backup/database.bacpac
+COPY database.bacpac /var/opt/mssql/backup/database.bacpac
 
 # Copy import script
 COPY import-bacpac.sh /opt/mssql-tools/bin/
@@ -42,8 +43,8 @@ RUN chmod +x /opt/mssql-tools/bin/import-bacpac.sh
 RUN chown -R mssql:root /var/opt/mssql/ \
     && chown -R mssql:root /opt/mssql-tools/
 
-# Switch to mssql user and import BACPAC
-USER mssql
+# Import BACPAC as root (SQL Server needs root privileges in Docker)
+USER root
 
 # Start SQL Server and import BACPAC
 RUN /opt/mssql-tools/bin/import-bacpac.sh
