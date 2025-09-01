@@ -15,26 +15,17 @@ ENV DATABASE_NAME=$DATABASE_NAME
 ENV BACPAC_FILE=/var/opt/mssql/backup/database.bacpac
 ENV MSSQL_PID=Express
 
+# Add mssql-tools18 to PATH (already included in base image)
+ENV PATH="$PATH:/opt/mssql-tools18/bin"
+
 # Install necessary tools for BACPAC import
 USER root
 RUN apt-get update && apt-get install -y \
     curl \
     unzip \
-    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Microsoft SQL Server command-line tools
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
-    && curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list \
-    && apt-get update \
-    && ACCEPT_EULA=Y apt-get install -y mssql-tools18 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Add mssql-tools to PATH
-ENV PATH="$PATH:/opt/mssql-tools18/bin:/opt/mssql-tools/bin"
-
-# Install sqlpackage for BACPAC import
+# Install sqlpackage for BACPAC import (mssql-tools18 already included in base image)
 RUN curl -L https://aka.ms/sqlpackage-linux -o sqlpackage.zip \
     && unzip sqlpackage.zip -d /opt/sqlpackage \
     && chmod +x /opt/sqlpackage/sqlpackage \
@@ -75,23 +66,12 @@ ENV SA_PASSWORD=$SA_PASSWORD
 ENV DATABASE_NAME=$DATABASE_NAME
 ENV MSSQL_PID=Express
 
-# Install runtime dependencies (fix empty install)
+# Add mssql-tools18 to PATH (already included in base image)
+ENV PATH="$PATH:/opt/mssql-tools18/bin"
+
+# Install runtime dependencies (minimal - mssql-tools18 already included in base image)
 USER root
 RUN apt-get update \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Microsoft SQL Server command-line tools
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
-    && curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list \
-    && apt-get update \
-    && ACCEPT_EULA=Y apt-get install -y mssql-tools18 \
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories for scripts and logs
