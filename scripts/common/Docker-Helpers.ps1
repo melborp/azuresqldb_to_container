@@ -164,49 +164,7 @@ function Test-DockerImage {
     }
 }
 
-function Remove-DockerImage {
-    <#
-    .SYNOPSIS
-    Removes a Docker image
-    
-    .PARAMETER ImageName
-    The full image name with tag
-    
-    .PARAMETER Force
-    Force removal of the image
-    #>
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ImageName,
-        
-        [Parameter(Mandatory = $false)]
-        [switch]$Force
-    )
-    
-    try {
-        Write-InfoLog "Removing Docker image: $ImageName"
-        
-        $dockerArgs = @("rmi")
-        if ($Force) {
-            $dockerArgs += "--force"
-        }
-        $dockerArgs += $ImageName
-        
-        $result = & docker @dockerArgs 2>&1
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-ErrorLog "Failed to remove Docker image: $result"
-            return $false
-        }
-        
-        Write-InfoLog "Docker image removed successfully"
-        return $true
-    }
-    catch {
-        Write-ErrorLog "Error removing Docker image: $($_.Exception.Message)"
-        return $false
-    }
-}
+
 
 function Push-DockerImageToRegistry {
     <#
@@ -260,64 +218,4 @@ function Push-DockerImageToRegistry {
     }
 }
 
-function Test-ContainerHealth {
-    <#
-    .SYNOPSIS
-    Tests if a container is healthy and responsive
-    
-    .PARAMETER ContainerName
-    The container name to test
-    
-    .PARAMETER MaxWaitSeconds
-    Maximum time to wait for container to be healthy (default: 300)
-    #>
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ContainerName,
-        
-        [Parameter(Mandatory = $false)]
-        [int]$MaxWaitSeconds = 300
-    )
-    
-    try {
-        Write-InfoLog "Testing container health: $ContainerName"
-        
-        $startTime = Get-Date
-        $timeout = $startTime.AddSeconds($MaxWaitSeconds)
-        
-        do {
-            $status = docker inspect $ContainerName --format "{{.State.Health.Status}}" 2>$null
-            
-            if ($LASTEXITCODE -eq 0) {
-                switch ($status) {
-                    "healthy" {
-                        Write-InfoLog "Container is healthy"
-                        return $true
-                    }
-                    "unhealthy" {
-                        Write-ErrorLog "Container is unhealthy"
-                        return $false
-                    }
-                    "starting" {
-                        Write-InfoLog "Container is starting, waiting..."
-                        Start-Sleep -Seconds 5
-                    }
-                    default {
-                        Write-InfoLog "Container health status: $status"
-                        Start-Sleep -Seconds 5
-                    }
-                }
-            } else {
-                Write-ErrorLog "Failed to get container status"
-                return $false
-            }
-        } while ((Get-Date) -lt $timeout)
-        
-        Write-ErrorLog "Container health check timed out"
-        return $false
-    }
-    catch {
-        Write-ErrorLog "Error testing container health: $($_.Exception.Message)"
-        return $false
-    }
-}
+

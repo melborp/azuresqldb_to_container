@@ -93,10 +93,4 @@ function Write-CriticalLog {
     throw $Message
 }
 
-function Write-DebugLog {
-    param(
-        [string]$Message,
-        [hashtable]$Properties = @{}
-    )
-    Write-Log -Level ([LogLevel]::Debug) -Message $Message -Properties $Properties
-}
+
