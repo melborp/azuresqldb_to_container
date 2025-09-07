@@ -153,7 +153,8 @@ For pushing images to ACR:
 ```
 bacpac_to_container/
 ├── scripts/
-│   ├── Export-AzureSqlDatabase.ps1    # Azure SQL Database export
+│   ├── Export-AzureSqlDatabase.ps1    # Azure SQL Database export (AccessToken auth)
+│   ├── Upload-FileToBlobStorage.ps1   # Generic file upload to Azure Blob Storage
 │   ├── Build-SqlContainer.ps1         # Container build with BACPAC import
 │   ├── Push-ContainerImage.ps1        # Azure Container Registry push
 │   └── common/
@@ -169,7 +170,10 @@ bacpac_to_container/
 │   ├── usage-examples.md             # Comprehensive usage examples
 │   └── sample-ci-pipeline.yml        # CI/CD pipeline examples
 ├── docs/
-│   └── Required-Permissions.md       # Detailed permissions setup guide
+│   ├── Required-Permissions.md       # Detailed permissions setup guide
+│   ├── CI-CD-Authentication.md       # CI/CD authentication guide
+│   ├── SqlPackage-Installation.md    # SqlPackage installation instructions
+│   └── Modular-Scripts.md           # New modular scripts documentation
 ├── build.ps1                         # Main orchestrator script
 ├── Agents.md                         # Project requirements and design
 ├── README.md                         # This file
@@ -178,20 +182,45 @@ bacpac_to_container/
 
 ## 🔧 Individual Script Usage
 
-### 1. Export Azure SQL Database
+### 1. Export Azure SQL Database (New Focused Version)
 
+Export to local file:
 ```powershell
 .\scripts\Export-AzureSqlDatabase.ps1 `
     -SubscriptionId "your-subscription-id" `
-    -ResourceGroupName "my-rg" `
     -ServerName "my-sql-server" `
     -DatabaseName "MyDatabase" `
-    -StorageAccountName "mystorageaccount" `
-    -ContainerName "bacpacs" `
-    -BacpacFileName "database.bacpac"
+    -OutputPath "C:\temp\database.bacpac"
 ```
 
-### 2. Build SQL Container
+### 2. Upload File to Blob Storage (New Generic Upload)
+
+Upload any file to Azure Blob Storage:
+```powershell
+.\scripts\Upload-FileToBlobStorage.ps1 `
+    -SubscriptionId "your-subscription-id" `
+    -FilePath "C:\temp\database.bacpac" `
+    -StorageAccountName "mystorageaccount" `
+    -ContainerName "bacpacs" `
+    -BlobName "database-$(Get-Date -Format 'yyyyMMdd').bacpac" `
+    -Overwrite `
+    -GenerateSasUrlHours 24
+```
+
+### 3. Complete Export and Upload Workflow
+
+For multiple databases or advanced scenarios:
+```powershell
+# Export multiple databases
+.\scripts\Export-AzureSqlDatabase.ps1 -SubscriptionId $subId -ServerName "server1" -DatabaseName "db1" -OutputPath "C:\temp\db1.bacpac"
+.\scripts\Export-AzureSqlDatabase.ps1 -SubscriptionId $subId -ServerName "server1" -DatabaseName "db2" -OutputPath "C:\temp\db2.bacpac"
+
+# Upload all BACPAC files
+.\scripts\Upload-FileToBlobStorage.ps1 -SubscriptionId $subId -FilePath "C:\temp\db1.bacpac" -StorageAccountName "storage1" -ContainerName "bacpacs"
+.\scripts\Upload-FileToBlobStorage.ps1 -SubscriptionId $subId -FilePath "C:\temp\db2.bacpac" -StorageAccountName "storage1" -ContainerName "bacpacs"
+```
+
+### 4. Build SQL Container
 
 ```powershell
 .\scripts\Build-SqlContainer.ps1 `
@@ -201,7 +230,7 @@ bacpac_to_container/
     -MigrationScriptPaths @("script1.sql", "script2.sql")
 ```
 
-### 3. Push to Azure Container Registry
+### 5. Push to Azure Container Registry
 
 ```powershell
 .\scripts\Push-ContainerImage.ps1 `
@@ -210,6 +239,29 @@ bacpac_to_container/
     -ImageTag "v1.0.0" `
     -AdditionalTags @("latest", "stable")
 ```
+
+## 🔄 Script Architecture Benefits
+
+### Modular Design
+The toolkit now features **split functionality** for enhanced flexibility:
+
+**Export-AzureSqlDatabase.ps1**:
+- ✅ **Focused Purpose**: Database export only with AccessToken authentication
+- ✅ **Local Output**: Exports directly to specified file path
+- ✅ **Multiple Databases**: Easily export multiple databases in parallel
+- ✅ **CI/CD Optimized**: Perfect for automated pipelines
+
+**Upload-FileToBlobStorage.ps1**:
+- ✅ **Generic Upload**: Upload any file type to Azure Blob Storage
+- ✅ **Multiple Targets**: Upload same file to different storage accounts
+- ✅ **SAS URL Generation**: Optional secure download links
+- ✅ **Upload Verification**: Automatic file integrity checks
+
+### Authentication Model
+- **AccessToken Authentication**: Uses Azure AD tokens via `az account get-access-token --resource "https://database.windows.net/"`
+- **Universal Authentication**: SqlPackage parameter `/ua:True` for proper token recognition
+- **Security**: No SQL credentials required, leverages Azure AD permissions
+- **CI/CD Ready**: Works seamlessly with service principals in automated environments
 
 ## 🔄 CI/CD Integration
 

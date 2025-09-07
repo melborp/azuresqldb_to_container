@@ -5,7 +5,23 @@ This document provides examples of how to use the BACPAC to Container toolkit in
 **Important**: The toolkit uses a **multi-stage Docker build** process where:
 1. **Build Stage 1**: BACPAC is imported into SQL Server during Docker build
 2. **Build Stage 2**: Database files are copied to final image (BACPAC is excluded)
-3. **Runtime**: Only migration and upgrade scripts are executed during container startup
+3. **Runtime**: Only migration scripts are executed during container startup
+
+## Script Architecture (Updated)
+
+The toolkit now features **modular scripts** for enhanced flexibility:
+
+### New Modular Approach
+- **Export-AzureSqlDatabase.ps1**: Database export with AccessToken authentication (exports to local file)
+- **Upload-FileToBlobStorage.ps1**: Generic file upload to Azure Blob Storage
+- **Build-SqlContainer.ps1**: Container build and BACPAC import
+- **Push-ContainerImage.ps1**: Azure Container Registry operations
+
+### Benefits
+- ✅ **Multiple Databases**: Export several databases in parallel
+- ✅ **Flexible Storage**: Upload files to different storage accounts
+- ✅ **CI/CD Optimized**: Clear separation of concerns for pipeline steps
+- ✅ **Reusable Components**: Use upload script for logs, backups, or any files
 
 ## Basic Usage
 
@@ -41,33 +57,65 @@ This document provides examples of how to use the BACPAC to Container toolkit in
 ```
 *Note: The final image will NOT contain the BACPAC file, significantly reducing image size.*
 
-### 3. Export Only
+### 3. Export Only (New Modular Approach)
 
+**New Method - Export to Local File:**
 ```powershell
-# With Azure AD Authentication (recommended)
+# Export database to local file with AccessToken authentication
 .\scripts\Export-AzureSqlDatabase.ps1 `
     -SubscriptionId "12345678-1234-1234-1234-123456789abc" `
-    -ResourceGroupName "my-rg" `
     -ServerName "my-sql-server" `
     -DatabaseName "MyDatabase" `
-    -StorageAccountName "mystorageaccount" `
-    -ContainerName "bacpacs" `
-    -BacpacFileName "mydatabase.bacpac"
-
-# With SQL Authentication (if Azure AD is not available)
-.\scripts\Export-AzureSqlDatabase.ps1 `
-    -SubscriptionId "12345678-1234-1234-1234-123456789abc" `
-    -ResourceGroupName "my-rg" `
-    -ServerName "my-sql-server" `
-    -DatabaseName "MyDatabase" `
-    -StorageAccountName "mystorageaccount" `
-    -ContainerName "bacpacs" `
-    -BacpacFileName "mydatabase.bacpac" `
-    -AdminUser "sqladmin" `
-    -AdminPassword "P@ssw0rd123"
+    -OutputPath "C:\temp\mydatabase.bacpac"
 ```
 
-**Note**: This script now uses SqlPackage utility which supports Azure AD authentication. No SQL credentials required when using Azure AD!
+**Upload to Blob Storage:**
+```powershell
+# Upload the exported BACPAC to blob storage
+.\scripts\Upload-FileToBlobStorage.ps1 `
+    -SubscriptionId "12345678-1234-1234-1234-123456789abc" `
+    -FilePath "C:\temp\mydatabase.bacpac" `
+    -StorageAccountName "mystorageaccount" `
+    -ContainerName "bacpacs" `
+    -BlobName "mydatabase-$(Get-Date -Format 'yyyyMMdd').bacpac" `
+    -Overwrite `
+    -GenerateSasUrlHours 24
+```
+
+### 4. Multiple Database Export Workflow
+
+```powershell
+# Export multiple databases in parallel
+$databases = @("Database1", "Database2", "Database3")
+$jobs = @()
+
+foreach ($db in $databases) {
+    $scriptBlock = {
+        param($SubscriptionId, $ServerName, $DatabaseName, $OutputPath)
+        .\scripts\Export-AzureSqlDatabase.ps1 `
+            -SubscriptionId $SubscriptionId `
+            -ServerName $ServerName `
+            -DatabaseName $DatabaseName `
+            -OutputPath $OutputPath
+    }
+    
+    $job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $subscriptionId, "my-server", $db, "C:\temp\$db.bacpac"
+    $jobs += $job
+}
+
+# Wait for all exports to complete
+$jobs | Wait-Job | Receive-Job
+
+# Upload all BACPAC files
+foreach ($db in $databases) {
+    .\scripts\Upload-FileToBlobStorage.ps1 `
+        -SubscriptionId $subscriptionId `
+        -FilePath "C:\temp\$db.bacpac" `
+        -StorageAccountName "mystorageaccount" `
+        -ContainerName "bacpacs" `
+        -Overwrite
+}
+```
 
 ## CI/CD Integration Examples
 
@@ -112,6 +160,71 @@ steps:
 
 **Note**: The AzureCLI@2 task automatically handles service principal authentication, making the scripts run without prompts.
 
+## New Authentication Model (AccessToken)
+
+The updated `Export-AzureSqlDatabase.ps1` script now uses **AccessToken authentication** for enhanced security:
+
+### How It Works
+1. **Azure CLI Token**: Uses `az account get-access-token --resource "https://database.windows.net/"`
+2. **SqlPackage Parameters**: Includes `/AccessToken:$token` and `/ua:True` for Universal Authentication
+3. **No SQL Credentials**: Eliminates the need for SQL username/password
+4. **CI/CD Ready**: Works seamlessly with service principals
+
+### Prerequisites
+- Azure CLI authenticated (`az login` or service principal)
+- Database permissions: `db_datareader`, `db_datawriter`, `db_ddladmin`, or `db_owner`
+- Access token scoped to `https://database.windows.net/` resource
+
+### Example Authentication Flow
+```powershell
+# Interactive login (development)
+az login
+
+# Export database (token automatically acquired)
+.\scripts\Export-AzureSqlDatabase.ps1 `
+    -SubscriptionId $subId `
+    -ServerName "myserver" `
+    -DatabaseName "mydb" `
+    -OutputPath "C:\temp\mydb.bacpac"
+```
+
+## Advanced Script Usage
+
+### Generic File Upload Examples
+
+The new `Upload-FileToBlobStorage.ps1` can upload any file type:
+
+```powershell
+# Upload database backup
+.\scripts\Upload-FileToBlobStorage.ps1 `
+    -SubscriptionId $subId `
+    -FilePath "C:\backups\database.bak" `
+    -StorageAccountName "backupstorage" `
+    -ContainerName "db-backups" `
+    -ContentType "application/octet-stream"
+
+# Upload log files with SAS URL
+.\scripts\Upload-FileToBlobStorage.ps1 `
+    -SubscriptionId $subId `
+    -FilePath "C:\logs\application.log" `
+    -StorageAccountName "logstorage" `
+    -ContainerName "app-logs" `
+    -GenerateSasUrlHours 48 `
+    -Overwrite
+
+# Upload multiple files in batch
+$files = Get-ChildItem "C:\exports\*.bacpac"
+foreach ($file in $files) {
+    .\scripts\Upload-FileToBlobStorage.ps1 `
+        -SubscriptionId $subId `
+        -FilePath $file.FullName `
+        -StorageAccountName "storage" `
+        -ContainerName "bacpacs" `
+        -BlobName "$(Get-Date -Format 'yyyy-MM-dd')_$($file.Name)" `
+        -Overwrite
+}
+```
+
 ### GitHub Actions
 
 ```yaml
@@ -143,9 +256,10 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     
-    - name: Build Database Container
+    - name: Build Database Container (Modular Approach)
       shell: pwsh
       run: |
+        # Option 1: Use main orchestrator (traditional approach)
         .\build.ps1 `
           -SubscriptionId "${{ secrets.AZURE_SUBSCRIPTION_ID }}" `
           -ResourceGroupName "${{ secrets.RESOURCE_GROUP_NAME }}" `
@@ -157,8 +271,74 @@ jobs:
           -ImageName "${{ env.IMAGE_NAME }}" `
           -ImageTag "${{ github.run_number }}" `
           -RegistryName "${{ env.REGISTRY_NAME }}" `
-          -MigrationScriptPaths @("${{ secrets.MIGRATION_SCRIPTS }}".Split(',')) `
+          -MigrationScriptPaths @("migrations/*.sql") `
           -LogLevel "Info"
+
+    - name: Multi-Database Export and Build (New Modular Approach)
+      shell: pwsh
+      run: |
+        # Export multiple databases
+        $databases = @("Database1", "Database2", "Database3")
+        foreach ($db in $databases) {
+          .\scripts\Export-AzureSqlDatabase.ps1 `
+            -SubscriptionId "${{ secrets.AZURE_SUBSCRIPTION_ID }}" `
+            -ServerName "${{ secrets.SQL_SERVER_NAME }}" `
+            -DatabaseName $db `
+            -OutputPath "temp/$db.bacpac"
+          
+          # Upload to blob storage
+          .\scripts\Upload-FileToBlobStorage.ps1 `
+            -SubscriptionId "${{ secrets.AZURE_SUBSCRIPTION_ID }}" `
+            -FilePath "temp/$db.bacpac" `
+            -StorageAccountName "${{ secrets.STORAGE_ACCOUNT_NAME }}" `
+            -ContainerName "bacpacs" `
+            -BlobName "${{ github.run_number }}_$db.bacpac" `
+            -Overwrite
+        }
+```
+
+### Pipeline with Separate Steps (Enhanced Control)
+
+```yaml
+# .github/workflows/modular-db-build.yml
+name: Modular Database Container Build
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  export-databases:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [Database1, Database2, Database3]
+    
+    steps:
+    - uses: actions/checkout@v3
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Export ${{ matrix.database }}
+      shell: pwsh
+      run: |
+        .\scripts\Export-AzureSqlDatabase.ps1 `
+          -SubscriptionId "${{ secrets.AZURE_SUBSCRIPTION_ID }}" `
+          -ServerName "${{ secrets.SQL_SERVER_NAME }}" `
+          -DatabaseName "${{ matrix.database }}" `
+          -OutputPath "temp/${{ matrix.database }}.bacpac"
+    
+    - name: Upload to Blob Storage
+      shell: pwsh
+      run: |
+        .\scripts\Upload-FileToBlobStorage.ps1 `
+          -SubscriptionId "${{ secrets.AZURE_SUBSCRIPTION_ID }}" `
+          -FilePath "temp/${{ matrix.database }}.bacpac" `
+          -StorageAccountName "${{ secrets.STORAGE_ACCOUNT_NAME }}" `
+          -ContainerName "bacpacs" `
+          -GenerateSasUrlHours 24 `
+          -Overwrite
 ```
 
 ## Individual Script Usage
