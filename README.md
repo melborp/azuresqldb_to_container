@@ -49,7 +49,61 @@ A **portable automation toolkit** for exporting Azure SQL Databases to BACPAC fo
 
 ## 🔧 Modular Scripts
 
-**New**: Split functionality for enhanced flexibility
+The toolkit provides **modular components** for advanced scenarios and custom workflows:
+
+| Script | Purpose | Input → Output |
+|--------|---------|----------------|
+| [`Export-AzureSqlDatabase.ps1`](docs/Modular-Scripts.md#export-azuresqldatabaseps1) | Database export with AccessToken auth | Azure SQL DB → Local BACPAC |
+| [`Upload-FileToBlobStorage.ps1`](docs/Modular-Scripts.md#upload-filetoblobstorageps1) | Generic file upload to Azure Storage | Local File → Blob Storage |
+| [`Download-FileFromBlobStorage.ps1`](docs/Modular-Scripts.md#download-filefromblobstorageps1) | Download with multiple auth fallbacks | Blob Storage → Local File |
+| [`Build-SqlServerImage.ps1`](docs/Modular-Scripts.md#build-sqlserverimages1) | Multi-database Docker image builder | Multiple BACPAC → Docker Image |
+
+### Advanced Multi-Database Example
+```powershell
+# Download multiple BACPAC files
+.\scripts\Download-FileFromBlobStorage.ps1 -BlobUrl "https://storage.../app.bacpac" -LocalPath "app.bacpac"
+.\scripts\Download-FileFromBlobStorage.ps1 -BlobUrl "https://storage.../config.bacpac" -LocalPath "config.bacpac"
+
+# Build image with multiple databases
+$securePassword = ConvertTo-SecureString "MyPassword123!" -AsPlainText -Force
+.\scripts\Build-SqlServerImage.ps1 `
+    -ImageName "multi-db-app" `
+    -ImageTag "v2.0.0" `
+    -BacpacPaths @("app.bacpac", "config.bacpac") `
+    -DatabaseNames @("AppDatabase", "ConfigDatabase") `
+    -MigrationScriptPaths @("migrations/*.sql") `
+    -SqlServerPassword $securePassword
+
+# Run with mounted migration scripts
+docker run -d -p 1433:1433 \
+  -e SA_PASSWORD='MyPassword123!' \
+  -v ./runtime-migrations:/var/opt/mssql/migration-scripts \
+  multi-db-app:v2.0.0
+```
+
+📖 **[Complete Modular Scripts Documentation →](docs/Modular-Scripts.md)**
+
+## 📦 Legacy Script (Deprecated)
+
+The original `Build-SqlContainer.ps1` script has been **split into modular components** for better maintainability and flexibility. It still works but shows deprecation warnings:
+
+**Legacy Usage (Still Supported):**
+```powershell
+# Original monolithic approach
+.\scripts\Build-SqlContainer.ps1 `
+    -BacpacPath "https://storage.blob.core.windows.net/bacpacs/database.bacpac" `
+    -ImageName "my-app" `
+    -ImageTag "v1.0.0" `
+    -MigrationScriptPaths @("migrations/*.sql")
+```
+
+**⚠️ Migration Path:** Use the new modular scripts for new projects:
+1. [`Download-FileFromBlobStorage.ps1`](docs/Modular-Scripts.md#download-filefromblobstorageps1) - For downloading BACPAC files
+2. [`Build-SqlServerImage.ps1`](docs/Modular-Scripts.md#build-sqlserverimages1) - For building multi-database images
+
+## 🔄 Migration Workflows
+
+**Split functionality for enhanced flexibility:**
 
 ```powershell
 # 1. Export database to local file

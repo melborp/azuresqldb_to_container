@@ -1,15 +1,146 @@
 # Modular Scripts Documentation
 
-This document provides detailed information about the new modular scripts introduced in the BACPAC to Container toolkit.
+This document provides detailed information about the modular scripts in the BACPAC to Container toolkit.
 
 ## Overview
 
-The toolkit has been enhanced with **split functionality** to provide better modularity and flexibility:
+The toolkit provides **modular components** for different stages of the container creation process:
 
-| Script | Purpose | Authentication | Output |
-|--------|---------|----------------|--------|
-| `Export-AzureSqlDatabase.ps1` | Database export only | AccessToken (Azure AD) | Local BACPAC file |
-| `Upload-FileToBlobStorage.ps1` | Generic file upload | Azure CLI | Blob Storage |
+| Script | Purpose | Authentication | Input/Output |
+|--------|---------|----------------|--------------|
+| `Export-AzureSqlDatabase.ps1` | Database export | AccessToken (Azure AD) | Database → Local BACPAC |
+| `Upload-FileToBlobStorage.ps1` | File upload | Azure CLI | Local File → Blob Storage |
+| `Download-FileFromBlobStorage.ps1` | File download | Azure CLI | Blob Storage → Local File |
+| `Build-SqlServerImage.ps1` | Docker image build | N/A | Multiple BACPAC → Docker Image |
+
+## Download-FileFromBlobStorage.ps1
+
+### Purpose
+Downloads files from Azure Blob Storage using Azure CLI authentication with multiple fallback methods.
+
+### Key Features
+- ✅ **Multi-Method Authentication**: Azure CLI, Storage Key, SAS Token fallbacks
+- ✅ **Automatic Retry**: Multiple authentication methods for reliability
+- ✅ **File Verification**: Optional integrity checking and file validation
+- ✅ **Progress Reporting**: Detailed logging and size reporting
+- ✅ **Force Overwrite**: Optional file replacement
+
+### Prerequisites
+- Azure CLI installed and authenticated (`az login`)
+- Access to the target storage account and container
+- Read permissions on the blob
+
+### Parameters
+
+| Parameter | Required | Description | Example |
+|-----------|----------|-------------|---------|
+| `BlobUrl` | Yes | Full Azure Blob Storage URL | `"https://storage.blob.core.windows.net/container/file.bacpac"` |
+| `LocalPath` | Yes | Local destination path | `"C:\temp\database.bacpac"` |
+| `Force` | No | Overwrite existing file | `$true` |
+| `VerifyIntegrity` | No | Verify file after download | `$true` |
+| `LogLevel` | No | Logging level (default: Info) | `"Debug"`, `"Info"`, `"Warning"`, `"Error"`, `"Critical"` |
+
+### Usage Examples
+
+**Basic Download:**
+```powershell
+.\scripts\Download-FileFromBlobStorage.ps1 `
+    -BlobUrl "https://mystorageaccount.blob.core.windows.net/bacpacs/database.bacpac" `
+    -LocalPath "C:\temp\database.bacpac"
+```
+
+**Download with Verification:**
+```powershell
+.\scripts\Download-FileFromBlobStorage.ps1 `
+    -BlobUrl "https://mystorageaccount.blob.core.windows.net/bacpacs/database.bacpac" `
+    -LocalPath "C:\temp\database.bacpac" `
+    -Force `
+    -VerifyIntegrity
+```
+
+### Authentication Methods
+1. **Azure CLI Authentication** (Primary): Uses current Azure CLI session
+2. **Storage Account Key** (Fallback): Retrieves and uses storage account key
+3. **SAS Token Generation** (Last Resort): Creates temporary SAS token
+
+## Build-SqlServerImage.ps1
+
+### Purpose
+Builds a Docker image with multiple BACPAC files imported during build time and support for runtime migration scripts.
+
+### Key Features
+- ✅ **Multiple BACPAC Support**: Import multiple databases in a single image
+- ✅ **Build-Time Import**: BACPAC files imported during Docker build (not in final image)
+- ✅ **Runtime Migration Scripts**: Scripts mounted as volumes and executed at startup
+- ✅ **Multi-Stage Build**: Optimized image size with separate build and runtime stages
+- ✅ **Automatic Database Naming**: Smart naming from BACPAC filenames or custom names
+- ✅ **Manifest Generation**: Build information and usage documentation
+
+### Prerequisites
+- Docker installed and running
+- Local BACPAC files (use Download-FileFromBlobStorage.ps1 to obtain them)
+- Optional: Migration script files
+- Sufficient disk space for Docker build process
+
+### Parameters
+
+| Parameter | Required | Description | Example |
+|-----------|----------|-------------|---------|
+| `ImageName` | Yes | Docker image name | `"my-sql-app"` |
+| `ImageTag` | Yes | Docker image tag | `"v1.0.0"` |
+| `BacpacPaths` | Yes | Array of BACPAC file paths | `@("C:\temp\db1.bacpac", "C:\temp\db2.bacpac")` |
+| `DatabaseNames` | No | Custom database names | `@("Database1", "Database2")` |
+| `MigrationScriptPaths` | No | Migration script paths | `@("C:\scripts\*.sql")` |
+| `SqlServerPassword` | No | SA password (SecureString) | `(ConvertTo-SecureString "MyPassword" -AsPlainText -Force)` |
+| `MigrationMountPath` | No | Container path for mounted scripts | `"/var/opt/mssql/migration-scripts"` |
+| `NoCache` | No | Build without Docker cache | `$true` |
+| `LogLevel` | No | Logging level (default: Info) | `"Debug"`, `"Info"`, `"Warning"`, `"Error"`, `"Critical"` |
+
+### Usage Examples
+
+**Single Database Build:**
+```powershell
+.\scripts\Build-SqlServerImage.ps1 `
+    -ImageName "my-sql-app" `
+    -ImageTag "v1.0.0" `
+    -BacpacPaths @("C:\temp\myapp.bacpac")
+```
+
+**Multi-Database Build with Migration Scripts:**
+```powershell
+$securePassword = ConvertTo-SecureString "MySecurePassword123!" -AsPlainText -Force
+
+.\scripts\Build-SqlServerImage.ps1 `
+    -ImageName "multi-db-app" `
+    -ImageTag "v2.0.0" `
+    -BacpacPaths @("C:\temp\app.bacpac", "C:\temp\config.bacpac") `
+    -DatabaseNames @("AppDatabase", "ConfigDatabase") `
+    -MigrationScriptPaths @("C:\migrations\*.sql") `
+    -SqlServerPassword $securePassword
+```
+
+**Running the Built Image:**
+```bash
+# Basic run
+docker run -d -p 1433:1433 -e SA_PASSWORD='YourPassword' my-sql-app:v1.0.0
+
+# With migration scripts mounted
+docker run -d -p 1433:1433 \
+  -e SA_PASSWORD='YourPassword' \
+  -v /path/to/migration-scripts:/var/opt/mssql/migration-scripts \
+  multi-db-app:v2.0.0
+```
+
+### Build Process
+1. **Validation**: Checks BACPAC files and migration scripts
+2. **Database Naming**: Assigns names based on filenames or custom names
+3. **Build Context**: Creates temporary directory with all required files
+4. **Dockerfile Generation**: Creates multi-stage Dockerfile for efficient building
+5. **Multi-Stage Build**:
+   - **Stage 1 (importer)**: Installs SqlPackage and imports all BACPAC files
+   - **Stage 2 (runtime)**: Copies imported databases and sets up runtime environment
+6. **Startup Script**: Configures runtime migration script execution
+7. **Cleanup**: Removes temporary build context
 
 ## Export-AzureSqlDatabase.ps1
 
@@ -173,6 +304,242 @@ Uploads any file to Azure Blob Storage using Azure CLI. Designed for generic fil
 ```powershell
 $files = Get-ChildItem "C:\exports\*.bacpac"
 foreach ($file in $files) {
+    .\scripts\Upload-FileToBlobStorage.ps1 `
+        -SubscriptionId $subscriptionId `
+        -FilePath $file.FullName `
+        -StorageAccountName "mystorageaccount" `
+        -ContainerName "bacpacs" `
+        -Overwrite
+}
+```
+
+## Common Workflows
+
+### Complete Database-to-Container Workflow
+
+**1. Export Database to BACPAC:**
+```powershell
+# Export from Azure SQL Database
+.\scripts\Export-AzureSqlDatabase.ps1 `
+    -SubscriptionId "12345678-1234-1234-1234-123456789abc" `
+    -ServerName "myserver" `
+    -DatabaseName "MyDatabase" `
+    -OutputPath "C:\temp\myapp.bacpac"
+```
+
+**2. Upload to Blob Storage (Optional):**
+```powershell
+# Upload for sharing or backup
+.\scripts\Upload-FileToBlobStorage.ps1 `
+    -SubscriptionId "12345678-1234-1234-1234-123456789abc" `
+    -FilePath "C:\temp\myapp.bacpac" `
+    -StorageAccountName "mystorageaccount" `
+    -ContainerName "bacpacs" `
+    -Overwrite
+```
+
+**3. Download BACPAC Files (if needed):**
+```powershell
+# Download multiple BACPAC files
+.\scripts\Download-FileFromBlobStorage.ps1 `
+    -BlobUrl "https://mystorageaccount.blob.core.windows.net/bacpacs/app.bacpac" `
+    -LocalPath "C:\build\app.bacpac" `
+    -Force
+
+.\scripts\Download-FileFromBlobStorage.ps1 `
+    -BlobUrl "https://mystorageaccount.blob.core.windows.net/bacpacs/config.bacpac" `
+    -LocalPath "C:\build\config.bacpac" `
+    -Force
+```
+
+**4. Build Docker Image:**
+```powershell
+# Create multi-database container
+$securePassword = ConvertTo-SecureString "MySecurePassword123!" -AsPlainText -Force
+
+.\scripts\Build-SqlServerImage.ps1 `
+    -ImageName "my-application" `
+    -ImageTag "v1.0.0" `
+    -BacpacPaths @("C:\build\app.bacpac", "C:\build\config.bacpac") `
+    -DatabaseNames @("ApplicationDB", "ConfigDB") `
+    -MigrationScriptPaths @("C:\migrations\*.sql") `
+    -SqlServerPassword $securePassword
+```
+
+**5. Run Container:**
+```bash
+docker run -d -p 1433:1433 \
+  -e SA_PASSWORD='MySecurePassword123!' \
+  -v /path/to/runtime-migrations:/var/opt/mssql/migration-scripts \
+  my-application:v1.0.0
+```
+
+### CI/CD Pipeline Integration
+
+**Azure DevOps Pipeline Example:**
+```yaml
+stages:
+- stage: BuildDatabase
+  jobs:
+  - job: ExportAndBuild
+    steps:
+    - task: PowerShell@2
+      displayName: 'Export Database'
+      inputs:
+        filePath: 'scripts/Export-AzureSqlDatabase.ps1'
+        arguments: |
+          -SubscriptionId $(SUBSCRIPTION_ID)
+          -ServerName $(SQL_SERVER_NAME)
+          -DatabaseName $(DATABASE_NAME)
+          -OutputPath "$(Build.ArtifactStagingDirectory)/database.bacpac"
+    
+    - task: PowerShell@2
+      displayName: 'Build Docker Image'
+      inputs:
+        filePath: 'scripts/Build-SqlServerImage.ps1'
+        arguments: |
+          -ImageName $(IMAGE_NAME)
+          -ImageTag $(Build.BuildNumber)
+          -BacpacPaths @("$(Build.ArtifactStagingDirectory)/database.bacpac")
+          -SqlServerPassword $(ConvertTo-SecureString "$(SQL_PASSWORD)" -AsPlainText -Force)
+    
+    - task: Docker@2
+      displayName: 'Push Image'
+      inputs:
+        command: 'push'
+        repository: $(IMAGE_NAME)
+        tags: $(Build.BuildNumber)
+```
+
+**GitHub Actions Example:**
+```yaml
+name: Build SQL Container
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Export Database
+      run: |
+        .\scripts\Export-AzureSqlDatabase.ps1 `
+          -SubscriptionId "${{ secrets.SUBSCRIPTION_ID }}" `
+          -ServerName "${{ secrets.SQL_SERVER_NAME }}" `
+          -DatabaseName "${{ secrets.DATABASE_NAME }}" `
+          -OutputPath "database.bacpac"
+    
+    - name: Build Docker Image
+      run: |
+        $securePassword = ConvertTo-SecureString "${{ secrets.SQL_PASSWORD }}" -AsPlainText -Force
+        .\scripts\Build-SqlServerImage.ps1 `
+          -ImageName "my-app" `
+          -ImageTag "${{ github.run_number }}" `
+          -BacpacPaths @("database.bacpac") `
+          -SqlServerPassword $securePassword
+```
+
+## Migration Scripts
+
+### Runtime Migration Script Execution
+
+Migration scripts are executed at container startup and should be mounted as volumes:
+
+**Directory Structure:**
+```
+/migration-scripts/
+├── 001_create_indexes.sql
+├── 002_update_schema.sql
+├── 003_seed_data.sql
+└── ...
+```
+
+**Script Naming Convention:**
+- Use numeric prefixes (001_, 002_, etc.) for execution order
+- Use descriptive names for the operation
+- Keep scripts idempotent (safe to run multiple times)
+
+**Example Migration Script:**
+```sql
+-- 001_create_performance_indexes.sql
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Orders_CustomerID')
+BEGIN
+    CREATE INDEX IX_Orders_CustomerID ON Orders(CustomerID);
+    PRINT 'Created index IX_Orders_CustomerID';
+END
+ELSE
+BEGIN
+    PRINT 'Index IX_Orders_CustomerID already exists';
+END
+```
+
+### Best Practices
+
+**For Export-AzureSqlDatabase.ps1:**
+- Use service principal authentication in CI/CD pipelines
+- Export during off-peak hours for large databases
+- Monitor export progress with Debug log level for large databases
+- Ensure sufficient disk space for BACPAC files
+
+**For Download-FileFromBlobStorage.ps1:**
+- Use `-VerifyIntegrity` for critical files
+- Implement retry logic in scripts for network issues
+- Use `-Force` carefully in automated scenarios
+
+**For Build-SqlServerImage.ps1:**
+- Use SecureString for passwords in scripts
+- Keep BACPAC files locally during build for faster access
+- Test migration scripts independently before container build
+- Use multi-stage builds to keep final image size minimal
+
+**For Container Deployment:**
+- Always use strong passwords in production
+- Mount migration scripts as read-only volumes
+- Monitor container startup logs for migration script execution
+- Use health checks to verify database availability
+- Consider using init containers for complex migration workflows
+
+## Troubleshooting
+
+### Common Issues
+
+**Authentication Failures:**
+```powershell
+# Check Azure CLI authentication
+az account show
+
+# Re-authenticate if needed
+az login
+
+# For service principals
+az login --service-principal -u $clientId -p $clientSecret --tenant $tenantId
+```
+
+**BACPAC Import Failures:**
+- Verify BACPAC file integrity
+- Check available disk space in container
+- Ensure SA_PASSWORD meets complexity requirements
+- Review SqlPackage error messages in build logs
+
+**Migration Script Issues:**
+- Verify script syntax with SQL Server Management Studio
+- Test scripts on a copy of the database first
+- Check file permissions on mounted volumes
+- Review container logs for script execution details
+
+**Docker Build Issues:**
+- Clear Docker build cache with `--no-cache`
+- Verify available disk space for Docker builds
+- Check Docker daemon status and restart if needed
+- Review Dockerfile syntax and multi-stage build configuration
     .\scripts\Upload-FileToBlobStorage.ps1 `
         -SubscriptionId $subscriptionId `
         -FilePath $file.FullName `

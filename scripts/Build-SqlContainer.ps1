@@ -1,5 +1,8 @@
 # Build-SqlContainer.ps1
-# Builds a SQL Server container with imported BACPAC and executes migration scripts
+# [DEPRECATED] This script has been split into modular components for better maintainability
+# Use Download-FileFromBlobStorage.ps1 and Build-SqlServerImage.ps1 instead
+#
+# Legacy: Builds a SQL Server container with imported BACPAC and executes migration scripts
 
 [CmdletBinding()]
 param(
@@ -236,7 +239,15 @@ function New-BuildContext {
 
 function main {
     try {
-        Write-InfoLog "=== SQL Container Build Started ===" @{
+        Write-WarningLog "=== DEPRECATION NOTICE ==="
+        Write-WarningLog "This script has been split into modular components:"
+        Write-WarningLog "1. Download-FileFromBlobStorage.ps1 - For downloading files from Azure Blob Storage"
+        Write-WarningLog "2. Build-SqlServerImage.ps1 - For building Docker images with multiple BACPAC files"
+        Write-WarningLog "Consider using the new modular scripts for better maintainability and flexibility"
+        Write-WarningLog "==============================="
+        Write-WarningLog ""
+        
+        Write-InfoLog "=== SQL Container Build Started (Legacy Mode) ===" @{
             ImageName = $ImageName
             ImageTag = $ImageTag
             BacpacPath = $BacpacPath
