@@ -50,10 +50,6 @@ function main {
         # Validate prerequisites
         Write-InfoLog "Validating prerequisites..."
         
-        if (-not (Test-AzureConnection)) {
-            Write-CriticalLog "Azure connection validation failed"
-        }
-        
         # Set subscription
         az account set -s $SubscriptionId
         
