@@ -24,9 +24,6 @@ param(
     [Parameter(Mandatory = $true, HelpMessage = "Output path for BACPAC file")]
     [string]$OutputPath,
     
-    [Parameter(Mandatory = $false, HelpMessage = "Azure AD tenant ID (optional, will be auto-detected if not provided)")]
-    [string]$TenantId,
-    
     [Parameter(Mandatory = $false, HelpMessage = "Log level (Debug, Info, Warning, Error, Critical)")]
     [ValidateSet("Debug", "Info", "Warning", "Error", "Critical")]
     [string]$LogLevel = "Info"
@@ -35,7 +32,6 @@ param(
 # Import helper modules
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 . "$scriptDir\common\Logging-Helpers.ps1"
-. "$scriptDir\common\Azure-Helpers.ps1"
 
 # Configure logging
 Set-LogLevel $LogLevel
@@ -59,7 +55,7 @@ function main {
         }
         
         # Set subscription
-        Set-AzureSubscription -SubscriptionId $SubscriptionId
+        az account set -s $SubscriptionId
         
         # Validate output path
         $outputDir = Split-Path -Parent $OutputPath
@@ -111,29 +107,13 @@ function main {
         
         Write-InfoLog "Access token acquired successfully - assuming token is valid for database access"
         
-        # Get tenant ID if not provided
-        if (-not $TenantId) {
-            Write-InfoLog "Detecting Azure AD tenant ID..."
-            $tenantInfo = az account show --query "tenantId" -o tsv 2>$null
-            if ($LASTEXITCODE -eq 0 -and $tenantInfo) {
-                $TenantId = $tenantInfo.Trim()
-                Write-InfoLog "Detected tenant ID: $TenantId"
-            }
-        }
-        
         # Build SqlPackage arguments
         $sqlPackageArgs = @(
             "/Action:Export"
             "/TargetFile:$OutputPath"
             "/SourceConnectionString:$connectionString"
             "/AccessToken:$accessToken"
-            "/ua:True"
         )
-        
-        # Add tenant ID if available
-        if ($TenantId) {
-            $sqlPackageArgs += "/TenantId:$TenantId"
-        }
         
         # Execute SqlPackage export
         Write-InfoLog "Executing SqlPackage export..."
